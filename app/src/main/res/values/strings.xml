@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">FOODDASH</string>
+    <string name="email">Email</string>
+    <string name="password">Password</string>
+    <string name="name">Name</string>
+    <string name="login">Login</string>
+    <string name="register">Register</string>
+    <string name="place_order">Place Order</string>
+    <string name="logout">Logout</string>
+    <string name="view_orders">View Orders</string>
+    <string name="title_fooddash">FOODDASH</string>
+    <string name="login_subtitle">Login to your account</string>
+    <string name="register_subtitle">Register an account</string>
+</resources>
