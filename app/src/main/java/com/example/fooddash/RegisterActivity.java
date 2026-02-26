@@ -1,6 +1,5 @@
 package com.example.fooddash;
 
-import android.app.Activity;
 import android.content.Intent;
 import android.os.Bundle;
 import android.util.Log;
@@ -18,10 +17,14 @@ import com.android.volley.toolbox.Volley;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.nio.charset.StandardCharsets;
+
 public class RegisterActivity extends AppCompatActivity {
 
     EditText nameEdit, emailEdit, passwordEdit;
-    Button btnRegister;
+    Button btnRegister, btnLogin;
+    // IMPORTANT: If you change your Wi-Fi network, you need to update this IP address.
+    // Find the IP address of the computer running your server and replace it here.
     String URL_REGISTER = "http://192.168.1.10/FoodDash/public/api/register"; // Replace with your IP
 
     @Override
@@ -33,8 +36,14 @@ public class RegisterActivity extends AppCompatActivity {
         emailEdit = findViewById(R.id.emailEdit);
         passwordEdit = findViewById(R.id.passwordEdit);
         btnRegister = findViewById(R.id.btnRegister);
+        btnLogin = findViewById(R.id.btnLogin);
 
         btnRegister.setOnClickListener(v -> registerUser());
+
+        btnLogin.setOnClickListener(v -> {
+            startActivity(new Intent(this, LoginActivity.class));
+            finish();
+        });
     }
 
     private void registerUser() {
@@ -52,11 +61,11 @@ public class RegisterActivity extends AppCompatActivity {
                 response -> {
                     try {
                         if (response.has("status") && response.getString("status").equals("success")) {
-                            Intent resultIntent = new Intent();
-                            resultIntent.putExtra("email", emailEdit.getText().toString());
-                            resultIntent.putExtra("password", passwordEdit.getText().toString());
-                            setResult(Activity.RESULT_OK, resultIntent);
-                            finish();
+                            Toast.makeText(this, "Registration Successful. Please login.", Toast.LENGTH_LONG).show();
+                            // Clear input fields
+                            nameEdit.setText("");
+                            emailEdit.setText("");
+                            passwordEdit.setText("");
                         } else {
                             String message = "Registration failed.";
                             if (response.has("message")) {
@@ -70,11 +79,34 @@ public class RegisterActivity extends AppCompatActivity {
                     }
                 },
                 error -> {
+                    String message = "Registration Failed. Check logs for details.";
                     if (error.networkResponse != null) {
-                        Log.e("RegisterActivity", "Registration Error Response: " + new String(error.networkResponse.data));
+                        String responseBody = new String(error.networkResponse.data, StandardCharsets.UTF_8);
+                        try {
+                            JSONObject errorJson = new JSONObject(responseBody);
+                            if (errorJson.has("errors")) {
+                                JSONObject errors = errorJson.getJSONObject("errors");
+                                StringBuilder errorMessage = new StringBuilder();
+                                java.util.Iterator<String> keys = errors.keys();
+                                while (keys.hasNext()) {
+                                    String key = keys.next();
+                                    Object errorValue = errors.get(key);
+                                    if (errorValue instanceof org.json.JSONArray) {
+                                        errorMessage.append(((org.json.JSONArray) errorValue).getString(0)).append("\n");
+                                    } else {
+                                        errorMessage.append(errorValue.toString()).append("\n");
+                                    }
+                                }
+                                message = errorMessage.toString().trim();
+                            } else if (errorJson.has("message")) {
+                                message = errorJson.getString("message");
+                            }
+                        } catch (JSONException e) {
+                            Log.e("RegisterActivity", "Error parsing error JSON from response: " + responseBody, e);
+                        }
                     }
                     Log.e("RegisterActivity", "Registration Volley Error", error);
-                    Toast.makeText(this, "Registration Failed. Check logs for details.", Toast.LENGTH_LONG).show();
+                    Toast.makeText(this, message, Toast.LENGTH_LONG).show();
                 }
         );
 
