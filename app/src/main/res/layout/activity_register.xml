@@ -37,6 +37,32 @@
                 android:text="@string/register_subtitle"
                 android:textAlignment="center" />
 
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/select_role"
+                android:textStyle="bold" />
+
+            <RadioGroup
+                android:id="@+id/roleGroup"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <RadioButton
+                    android:id="@+id/rbCustomer"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/customer" />
+
+                <RadioButton
+                    android:id="@+id/rbDriver"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="16dp"
+                    android:text="@string/driver" />
+            </RadioGroup>
+
             <EditText
                 android:id="@+id/nameEdit"
                 android:layout_width="match_parent"
@@ -44,6 +70,43 @@
                 android:autofillHints=""
                 android:hint="@string/name"
                 android:ems="10"/>
+
+            <EditText
+                android:id="@+id/contactEdit"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:autofillHints=""
+                android:hint="@string/contact_number"
+                android:inputType="phone" />
+
+            <EditText
+                android:id="@+id/addressEdit"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:autofillHints=""
+                android:hint="@string/delivery_address"
+                android:inputType="textPostalAddress" />
+
+            <LinearLayout
+                android:id="@+id/driverFieldsContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <EditText
+                    android:id="@+id/licenseNumberEdit"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:autofillHints=""
+                    android:hint="@string/license_number" />
+
+                <Spinner
+                    android:id="@+id/vehicleTypeSpinner"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:entries="@array/vehicle_types" />
+            </LinearLayout>
 
             <EditText
                 android:id="@+id/emailEdit"
@@ -59,6 +122,14 @@
                 android:layout_height="wrap_content"
                 android:autofillHints=""
                 android:hint="@string/password"
+                android:inputType="textPassword" />
+
+            <EditText
+                android:id="@+id/confirmPasswordEdit"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:autofillHints=""
+                android:hint="@string/confirm_password"
                 android:inputType="textPassword" />
 
             <Button

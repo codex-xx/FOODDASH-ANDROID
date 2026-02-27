@@ -1,6 +1,5 @@
 package com.example.fooddash;
 
-import android.app.Activity;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Bundle;
@@ -9,25 +8,23 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.Toast;
 
-import androidx.activity.result.ActivityResultLauncher;
-import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.android.volley.Request;
-import com.android.volley.RequestQueue;
 import com.android.volley.toolbox.JsonObjectRequest;
 import com.android.volley.toolbox.Volley;
 
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
+
+import java.util.Locale;
 
 public class LoginActivity extends AppCompatActivity {
 
     EditText emailEdit, passwordEdit;
     Button btnLogin, btnGoRegister;
     String URL_LOGIN = Constants.BASE_URL + "login"; // Use the centralized URL
-
-    private ActivityResultLauncher<Intent> registerLauncher;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -39,30 +36,34 @@ public class LoginActivity extends AppCompatActivity {
         btnLogin = findViewById(R.id.btnLogin);
         btnGoRegister = findViewById(R.id.btnGoRegister);
 
-        registerLauncher = registerForActivityResult(
-                new ActivityResultContracts.StartActivityForResult(),
-                result -> {
-                    if (result.getResultCode() == Activity.RESULT_OK) {
-                        Intent data = result.getData();
-                        if (data != null) {
-                            String email = data.getStringExtra("email");
-                            String password = data.getStringExtra("password");
-                            emailEdit.setText(email);
-                            passwordEdit.setText(password);
-                            loginUser(email, password);
-                        }
-                    }
-                }
-        );
+        Intent intent = getIntent();
+        if (intent != null) {
+            String registeredEmail = intent.getStringExtra("email");
+            String registeredPassword = intent.getStringExtra("password");
+            if (registeredEmail != null) {
+                emailEdit.setText(registeredEmail);
+            }
+            if (registeredPassword != null) {
+                passwordEdit.setText(registeredPassword);
+            }
+        }
 
         btnLogin.setOnClickListener(v -> loginUser(emailEdit.getText().toString(), passwordEdit.getText().toString()));
         btnGoRegister.setOnClickListener(v -> {
-            Intent intent = new Intent(this, RegisterActivity.class);
-            registerLauncher.launch(intent);
+            Intent registerIntent = new Intent(this, RegisterActivity.class);
+            startActivity(registerIntent);
         });
     }
 
     private void loginUser(String email, String password) {
+        email = email.trim();
+        password = password.trim();
+
+        if (email.isEmpty() || password.isEmpty()) {
+            Toast.makeText(this, "Please enter email and password", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
         JSONObject postData = new JSONObject();
         try {
             postData.put("email", email);
@@ -74,13 +75,32 @@ public class LoginActivity extends AppCompatActivity {
         JsonObjectRequest request = new JsonObjectRequest(Request.Method.POST, URL_LOGIN, postData,
                 response -> {
                     try {
-                        String apiToken = "";
+                        String role = normalizeValue(findFirstStringForKeys(response, "role", "user_role"));
+                        String status = normalizeValue(findFirstStringForKeys(response, "status", "account_status"));
+
+                        if ("driver".equals(role)) {
+                            if ("pending".equals(status)) {
+                                Toast.makeText(this, "Account awaiting approval", Toast.LENGTH_LONG).show();
+                                return;
+                            }
+                            if ("rejected".equals(status)) {
+                                String message = response.optString("message", "Your driver account was rejected.");
+                                Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+                                return;
+                            }
+                            if (!"approved".equals(status)) {
+                                Toast.makeText(this, "Driver account is not approved yet.", Toast.LENGTH_LONG).show();
+                                return;
+                            }
+                        }
 
                         JSONObject data = response.optJSONObject("data");
+                        JSONObject user = data != null ? data.optJSONObject("user") : null;
+
+                        String apiToken = "";
                         if (data != null) {
                             apiToken = data.optString("token");
                             if (apiToken.isEmpty()) {
-                                JSONObject user = data.optJSONObject("user");
                                 if (user != null) {
                                     apiToken = user.optString("api_token");
                                 }
@@ -97,7 +117,14 @@ public class LoginActivity extends AppCompatActivity {
                         prefs.edit().putString("api_token", apiToken).apply();
 
                         Toast.makeText(this, "Login Successful!", Toast.LENGTH_SHORT).show();
-                        startActivity(new Intent(this, CustomerDashboard.class));
+
+                        Intent intent;
+                        if ("driver".equals(role) && "approved".equals(status)) {
+                            intent = new Intent(this, DriverDashboard.class);
+                        } else {
+                            intent = new Intent(this, CustomerDashboard.class);
+                        }
+                        startActivity(intent);
                         finish();
 
                     } catch (Exception e) {
@@ -124,5 +151,72 @@ public class LoginActivity extends AppCompatActivity {
         );
 
         Volley.newRequestQueue(this).add(request);
+    }
+
+    private String normalizeValue(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private String findFirstStringForKeys(JSONObject source, String... keys) {
+        if (source == null || keys == null || keys.length == 0) {
+            return "";
+        }
+
+        for (String key : keys) {
+            String direct = source.optString(key, "");
+            if (direct != null && !direct.trim().isEmpty()) {
+                return direct;
+            }
+        }
+
+        JSONArray names = source.names();
+        if (names == null) {
+            return "";
+        }
+
+        for (int index = 0; index < names.length(); index++) {
+            String childKey = names.optString(index, "");
+            Object childValue = source.opt(childKey);
+
+            if (childValue instanceof JSONObject) {
+                String nestedValue = findFirstStringForKeys((JSONObject) childValue, keys);
+                if (!nestedValue.isEmpty()) {
+                    return nestedValue;
+                }
+            } else if (childValue instanceof JSONArray) {
+                String arrayValue = findFirstStringInArray((JSONArray) childValue, keys);
+                if (!arrayValue.isEmpty()) {
+                    return arrayValue;
+                }
+            }
+        }
+
+        return "";
+    }
+
+    private String findFirstStringInArray(JSONArray array, String... keys) {
+        if (array == null) {
+            return "";
+        }
+
+        for (int index = 0; index < array.length(); index++) {
+            Object item = array.opt(index);
+            if (item instanceof JSONObject) {
+                String nestedValue = findFirstStringForKeys((JSONObject) item, keys);
+                if (!nestedValue.isEmpty()) {
+                    return nestedValue;
+                }
+            } else if (item instanceof JSONArray) {
+                String nestedArrayValue = findFirstStringInArray((JSONArray) item, keys);
+                if (!nestedArrayValue.isEmpty()) {
+                    return nestedArrayValue;
+                }
+            }
+        }
+
+        return "";
     }
 }

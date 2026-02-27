@@ -12,4 +12,19 @@
     <string name="title_fooddash">FOODDASH</string>
     <string name="login_subtitle">Login to your account</string>
     <string name="register_subtitle">Register an account</string>
+    <string name="select_role">Select Role</string>
+    <string name="customer">Customer</string>
+    <string name="driver">Driver</string>
+    <string name="contact_number">Contact Number</string>
+    <string name="delivery_address">Delivery Address</string>
+    <string name="confirm_password">Confirm Password</string>
+    <string name="license_number">License Number</string>
+    <string name="vehicle_type">Vehicle Type</string>
+
+    <string-array name="vehicle_types">
+        <item>Select Vehicle Type</item>
+        <item>Motorcycle</item>
+        <item>Tricycle</item>
+        <item>Cab</item>
+    </string-array>
 </resources>
