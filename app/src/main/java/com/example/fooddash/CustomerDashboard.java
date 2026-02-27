@@ -1,7 +1,9 @@
 package com.example.fooddash;
 
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -17,6 +19,12 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.DataOutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -29,6 +37,9 @@ public class CustomerDashboard extends AppCompatActivity {
     private TextView totalPriceTextView;
     private ProductAdapter adapter;
     private List<Product> productList;
+
+    // Use the centralized URL from Constants
+    private static final String API_URL = Constants.BASE_URL + "orders";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -54,17 +65,25 @@ public class CustomerDashboard extends AppCompatActivity {
         btnPlaceOrder.setOnClickListener(v -> placeOrder());
 
         btnLogout.setOnClickListener(v -> {
+            // Clear session/token using Application Context
+            SharedPreferences prefs = getApplicationContext().getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
+            prefs.edit().clear().apply();
+
             startActivity(new Intent(this, LoginActivity.class));
             finish();
         });
     }
 
-    private void calculateTotalPrice() {
+    private double calculateTotal() {
         double total = 0;
         for (Product product : productList) {
             total += product.getPrice() * product.getQuantity();
         }
-        totalPriceTextView.setText(String.format(Locale.getDefault(), "Total: ₱%.2f", total));
+        return total;
+    }
+
+    private void calculateTotalPrice() {
+        totalPriceTextView.setText(String.format(Locale.getDefault(), "Total: ₱%.2f", calculateTotal()));
     }
 
     private void placeOrder() {
@@ -74,22 +93,75 @@ public class CustomerDashboard extends AppCompatActivity {
             return;
         }
 
-        int selectedVehicleId = vehicleRadioGroup.getCheckedRadioButtonId();
-        RadioButton selectedVehicle = findViewById(selectedVehicleId);
-        String vehicle = selectedVehicle.getText().toString();
-
-        StringBuilder orderSummary = new StringBuilder("Ordered: ");
-        for (Product product : selectedProducts) {
-            orderSummary.append(product.getQuantity())
-                .append("x ")
-                .append(product.getName())
-                .append(", ");
+        // Get token from SharedPreferences using Application Context
+        SharedPreferences prefs = getApplicationContext().getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
+        String token = prefs.getString("api_token", null);
+        Log.d("CustomerDashboard", "Retrieved token for order: " + token);
+        if (token == null || token.isEmpty()) {
+            Toast.makeText(this, "You are not logged in. Please log in again.", Toast.LENGTH_SHORT).show();
+            return;
         }
-        orderSummary.setLength(orderSummary.length() - 2); // Remove last comma and space
-        orderSummary.append(" with a ").append(vehicle);
 
-        Toast.makeText(this, orderSummary.toString(), Toast.LENGTH_LONG).show();
+        new Thread(() -> {
+            HttpURLConnection conn = null;
+            try {
+                URL url = new URL(API_URL);
+                conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("POST");
+                conn.setRequestProperty("Content-Type", "application/json;charset=UTF-8");
+                conn.setRequestProperty("Accept", "application/json");
+                conn.setRequestProperty("Authorization", "Bearer " + token);
+                conn.setDoOutput(true);
+                conn.setDoInput(true);
+
+                JSONObject jsonPayload = new JSONObject();
+                // NOTE: Hardcoding restaurant_id and delivery_address as they are not in the UI
+                jsonPayload.put("restaurant_id", 1);
+                jsonPayload.put("total_amount", calculateTotal());
+                jsonPayload.put("delivery_address", "123 Food Street, App City");
+
+                JSONArray itemsArray = new JSONArray();
+                for (Product product : selectedProducts) {
+                    JSONObject item = new JSONObject();
+                    item.put("name", product.getName());
+                    item.put("quantity", product.getQuantity());
+                    item.put("price", product.getPrice());
+                    itemsArray.put(item);
+                }
+                jsonPayload.put("items", itemsArray);
+
+
+                DataOutputStream os = new DataOutputStream(conn.getOutputStream());
+                os.writeBytes(jsonPayload.toString());
+                os.flush();
+                os.close();
+
+                int responseCode = conn.getResponseCode();
+                if (responseCode == HttpURLConnection.HTTP_CREATED) {
+                    runOnUiThread(() -> {
+                        Toast.makeText(CustomerDashboard.this, "Order placed successfully!", Toast.LENGTH_LONG).show();
+                        // Reset quantities
+                        for(Product p : productList) p.setQuantity(0);
+                        adapter.notifyDataSetChanged();
+                        calculateTotalPrice();
+                    });
+                } else {
+                    final String errorResponse = new java.util.Scanner(conn.getErrorStream()).useDelimiter("\\A").next();
+                    Log.e("CustomerDashboard", "Error response from server (" + responseCode + "): " + errorResponse);
+                    runOnUiThread(() -> Toast.makeText(CustomerDashboard.this, "Failed to place order. Server code: " + responseCode, Toast.LENGTH_LONG).show());
+                }
+
+            } catch (Exception e) {
+                e.printStackTrace();
+                runOnUiThread(() -> Toast.makeText(CustomerDashboard.this, "Error placing order: " + e.getMessage(), Toast.LENGTH_LONG).show());
+            } finally {
+                if (conn != null) {
+                    conn.disconnect();
+                }
+            }
+        }).start();
     }
+
 
     // Product data model
     private static class Product {

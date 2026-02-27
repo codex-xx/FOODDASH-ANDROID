@@ -2,6 +2,7 @@ package com.example.fooddash;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.util.Log;
 import android.widget.Button;
@@ -24,7 +25,7 @@ public class LoginActivity extends AppCompatActivity {
 
     EditText emailEdit, passwordEdit;
     Button btnLogin, btnGoRegister;
-    String URL_LOGIN = "http://192.168.1.10/FoodDash/public/api/login"; // Replace with your IP
+    String URL_LOGIN = Constants.BASE_URL + "login"; // Use the centralized URL
 
     private ActivityResultLauncher<Intent> registerLauncher;
 
@@ -72,33 +73,43 @@ public class LoginActivity extends AppCompatActivity {
 
         JsonObjectRequest request = new JsonObjectRequest(Request.Method.POST, URL_LOGIN, postData,
                 response -> {
-                    // The request was successful (HTTP 2xx), so we are in the success block.
                     try {
-                        // Check if the role is explicitly defined and is NOT 'customer'.
-                        if (response.has("role") && !response.getString("role").equals("customer")) {
-                            Log.e("LoginActivity", "Login attempt by non-customer role: " + response.getString("role"));
-                            Toast.makeText(this, "This application is for customers only.", Toast.LENGTH_SHORT).show();
-                        } else {
-                            // Otherwise, assume a successful customer login.
-                            // This handles cases where the role is 'customer' or is not specified in the success response.
-                            startActivity(new Intent(this, CustomerDashboard.class));
-                            finish();
+                        String apiToken = "";
+
+                        JSONObject data = response.optJSONObject("data");
+                        if (data != null) {
+                            apiToken = data.optString("token");
+                            if (apiToken.isEmpty()) {
+                                JSONObject user = data.optJSONObject("user");
+                                if (user != null) {
+                                    apiToken = user.optString("api_token");
+                                }
+                            }
                         }
-                    } catch (JSONException e) {
-                        // If we are here, the success response was not a valid JSON or 'role' key was not a string.
-                        // It's safest to let the user in as a customer.
-                        Log.e("LoginActivity", "Error processing JSON on success", e);
+
+                        if (apiToken.isEmpty()) {
+                            Log.e("LoginActivity", "API token not found in response: " + response.toString());
+                            Toast.makeText(this, "Login failed: Could not retrieve API token.", Toast.LENGTH_LONG).show();
+                            return;
+                        }
+
+                        SharedPreferences prefs = getApplicationContext().getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
+                        prefs.edit().putString("api_token", apiToken).apply();
+
+                        Toast.makeText(this, "Login Successful!", Toast.LENGTH_SHORT).show();
                         startActivity(new Intent(this, CustomerDashboard.class));
                         finish();
+
+                    } catch (Exception e) {
+                        Log.e("LoginActivity", "Failed to parse login success response", e);
+                        Toast.makeText(this, "An error occurred after login.", Toast.LENGTH_LONG).show();
                     }
                 },
                 error -> {
-                    // The request failed (HTTP 4xx or 5xx)
                     if (error.networkResponse != null && error.networkResponse.data != null) {
                         try {
                             String responseBody = new String(error.networkResponse.data, "utf-8");
                             JSONObject data = new JSONObject(responseBody);
-                            // Display the specific error message from the server, e.g., "Invalid credentials"
                             String message = data.optString("message", "An unknown error occurred.");
                             Toast.makeText(this, message, Toast.LENGTH_LONG).show();
                         } catch (Exception e) {
@@ -106,14 +117,12 @@ public class LoginActivity extends AppCompatActivity {
                             Toast.makeText(this, "Login Failed. Check logs for details.", Toast.LENGTH_LONG).show();
                         }
                     } else {
-                        // This handles cases like no network connection.
                         Log.e("LoginActivity", "Login Volley Error", error);
                         Toast.makeText(this, "Login Failed. Check network connection.", Toast.LENGTH_LONG).show();
                     }
                 }
         );
 
-        RequestQueue queue = Volley.newRequestQueue(this);
-        queue.add(request);
+        Volley.newRequestQueue(this).add(request);
     }
 }

@@ -1,6 +1,8 @@
 package com.example.fooddash;
 
+import android.app.Activity;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.util.Log;
 import android.widget.Button;
@@ -23,9 +25,7 @@ public class RegisterActivity extends AppCompatActivity {
 
     EditText nameEdit, emailEdit, passwordEdit;
     Button btnRegister, btnLogin;
-    // IMPORTANT: If you change your Wi-Fi network, you need to update this IP address.
-    // Find the IP address of the computer running your server and replace it here.
-    String URL_REGISTER = "http://192.168.1.10/FoodDash/public/api/register"; // Replace with your IP
+    String URL_REGISTER = Constants.BASE_URL + "register"; // Use the centralized URL
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -47,40 +47,65 @@ public class RegisterActivity extends AppCompatActivity {
     }
 
     private void registerUser() {
+        String name = nameEdit.getText().toString().trim();
+        String email = emailEdit.getText().toString().trim();
+        String password = passwordEdit.getText().toString().trim();
+
+        if (name.isEmpty() || email.isEmpty() || password.isEmpty()) {
+            Toast.makeText(this, "Please fill all fields", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
         JSONObject postData = new JSONObject();
         try {
-            postData.put("name", nameEdit.getText().toString());
-            postData.put("email", emailEdit.getText().toString());
-            postData.put("password", passwordEdit.getText().toString());
+            postData.put("name", name);
+            postData.put("email", email);
+            postData.put("password", password);
             postData.put("role", "customer");
         } catch (JSONException e) {
             Log.e("RegisterActivity", "Failed to create JSON object", e);
+            return;
         }
 
         JsonObjectRequest request = new JsonObjectRequest(Request.Method.POST, URL_REGISTER, postData,
                 response -> {
-                    try {
-                        if (response.has("status") && response.getString("status").equals("success")) {
-                            Toast.makeText(this, "Registration Successful. Please login.", Toast.LENGTH_LONG).show();
-                            // Clear input fields
-                            nameEdit.setText("");
-                            emailEdit.setText("");
-                            passwordEdit.setText("");
-                        } else {
-                            String message = "Registration failed.";
-                            if (response.has("message")) {
-                                message = response.getString("message");
-                            }
-                            Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+                    boolean isSuccess = response.optBoolean("success", false) || "success".equals(response.optString("status"));
+                    if (isSuccess) {
+                        String apiToken = "";
+                        JSONObject data = response.optJSONObject("data");
+                        if (data != null) {
+                            apiToken = data.optString("api_token");
                         }
-                    } catch (JSONException e) {
-                        Log.e("RegisterActivity", "JSON Error", e);
-                        Toast.makeText(this, "JSON Error", Toast.LENGTH_SHORT).show();
+                        if (apiToken.isEmpty()) {
+                            apiToken = response.optString("api_token");
+                        }
+
+                        if (!apiToken.isEmpty()) {
+                            Toast.makeText(this, "Registration Successful!", Toast.LENGTH_SHORT).show();
+
+                            SharedPreferences prefs = getApplicationContext().getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
+                            prefs.edit().putString("api_token", apiToken).apply();
+
+                            Intent intent = new Intent(this, CustomerDashboard.class);
+                            intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
+                            startActivity(intent);
+                            finish();
+                        } else {
+                            Toast.makeText(this, "Registration successful. Please log in.", Toast.LENGTH_SHORT).show();
+                            Intent resultIntent = new Intent();
+                            resultIntent.putExtra("email", email);
+                            resultIntent.putExtra("password", password);
+                            setResult(Activity.RESULT_OK, resultIntent);
+                            finish();
+                        }
+                    } else {
+                        String message = response.optString("message", "Registration failed.");
+                        Toast.makeText(this, message, Toast.LENGTH_LONG).show();
                     }
                 },
                 error -> {
-                    String message = "Registration Failed. Check logs for details.";
-                    if (error.networkResponse != null) {
+                    String message = "Registration Failed. Please try again.";
+                    if (error.networkResponse != null && error.networkResponse.data != null) {
                         String responseBody = new String(error.networkResponse.data, StandardCharsets.UTF_8);
                         try {
                             JSONObject errorJson = new JSONObject(responseBody);
@@ -88,21 +113,16 @@ public class RegisterActivity extends AppCompatActivity {
                                 JSONObject errors = errorJson.getJSONObject("errors");
                                 StringBuilder errorMessage = new StringBuilder();
                                 java.util.Iterator<String> keys = errors.keys();
-                                while (keys.hasNext()) {
+                                if (keys.hasNext()) {
                                     String key = keys.next();
-                                    Object errorValue = errors.get(key);
-                                    if (errorValue instanceof org.json.JSONArray) {
-                                        errorMessage.append(((org.json.JSONArray) errorValue).getString(0)).append("\n");
-                                    } else {
-                                        errorMessage.append(errorValue.toString()).append("\n");
-                                    }
+                                    errorMessage.append(errors.getJSONArray(key).getString(0));
                                 }
-                                message = errorMessage.toString().trim();
+                                message = errorMessage.toString();
                             } else if (errorJson.has("message")) {
                                 message = errorJson.getString("message");
                             }
                         } catch (JSONException e) {
-                            Log.e("RegisterActivity", "Error parsing error JSON from response: " + responseBody, e);
+                            Log.e("RegisterActivity", "Error parsing error JSON: " + responseBody, e);
                         }
                     }
                     Log.e("RegisterActivity", "Registration Volley Error", error);
@@ -110,7 +130,6 @@ public class RegisterActivity extends AppCompatActivity {
                 }
         );
 
-        RequestQueue queue = Volley.newRequestQueue(this);
-        queue.add(request);
+        Volley.newRequestQueue(this).add(request);
     }
 }
