@@ -20,6 +20,8 @@
     <string name="confirm_password">Confirm Password</string>
     <string name="license_number">License Number</string>
     <string name="vehicle_type">Vehicle Type</string>
+    <string name="forgot_password">Forgot Password?</string>
+    <string name="reset_password">Reset Password</string>
 
     <string-array name="vehicle_types">
         <item>Select Vehicle Type</item>

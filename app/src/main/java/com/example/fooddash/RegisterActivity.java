@@ -110,18 +110,16 @@ public class RegisterActivity extends AppCompatActivity {
         try {
             postData.put("name", name);
             postData.put("contact_number", contactNumber);
-            postData.put("delivery_address", deliveryAddress);
             postData.put("email", email);
             postData.put("password", password);
             postData.put("password_confirmation", confirmPassword);
             postData.put("role", role);
             postData.put("status", "customer".equals(role) ? "active" : "pending");
-            if (!isDriver) {
-                postData.put("delivery_address", deliveryAddress);
-            }
             if (isDriver) {
                 postData.put("license_number", licenseNumber);
                 postData.put("vehicle_type", vehicleType);
+            } else {
+                postData.put("delivery_address", deliveryAddress);
             }
         } catch (JSONException e) {
             Log.e("RegisterActivity", "Failed to create JSON object", e);
@@ -160,11 +158,18 @@ public class RegisterActivity extends AppCompatActivity {
                                 JSONObject errors = errorJson.getJSONObject("errors");
                                 StringBuilder errorMessage = new StringBuilder();
                                 java.util.Iterator<String> keys = errors.keys();
-                                if (keys.hasNext()) {
+                                while (keys.hasNext()) {
                                     String key = keys.next();
-                                    errorMessage.append(errors.getJSONArray(key).getString(0));
+                                    org.json.JSONArray errorArray = errors.getJSONArray(key);
+                                    for (int i = 0; i < errorArray.length(); i++) {
+                                        errorMessage.append(errorArray.getString(i)).append("\n");
+                                    }
                                 }
-                                message = errorMessage.toString();
+                                if (errorMessage.length() > 0) {
+                                    message = errorMessage.substring(0, errorMessage.length() - 1);
+                                } else {
+                                    message = "An unknown error occurred.";
+                                }
                             } else if (errorJson.has("message")) {
                                 message = errorJson.getString("message");
                             }
@@ -176,6 +181,11 @@ public class RegisterActivity extends AppCompatActivity {
                     Toast.makeText(this, message, Toast.LENGTH_LONG).show();
                 }
         );
+
+        request.setRetryPolicy(new com.android.volley.DefaultRetryPolicy(
+                10000,
+                com.android.volley.DefaultRetryPolicy.DEFAULT_MAX_RETRIES,
+                com.android.volley.DefaultRetryPolicy.DEFAULT_BACKOFF_MULT));
 
         Volley.newRequestQueue(this).add(request);
     }

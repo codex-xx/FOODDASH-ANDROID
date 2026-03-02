@@ -26,6 +26,9 @@
         <activity android:name=".RegisterActivity"/>
         <activity android:name=".CustomerDashboard"/>
         <activity android:name=".DriverDashboard"/>
+        <activity android:name=".ForgotPasswordActivity"/>
+        <activity android:name=".VerifyCodeActivity"/>
+        <activity android:name=".ResetPasswordActivity"/>
 
     </application>
 </manifest>

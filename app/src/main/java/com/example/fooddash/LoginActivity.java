@@ -6,6 +6,7 @@ import android.os.Bundle;
 import android.util.Log;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
@@ -24,6 +25,7 @@ public class LoginActivity extends AppCompatActivity {
 
     EditText emailEdit, passwordEdit;
     Button btnLogin, btnGoRegister;
+    TextView forgotPassword;
     String URL_LOGIN = Constants.BASE_URL + "login"; // Use the centralized URL
 
     @Override
@@ -35,6 +37,7 @@ public class LoginActivity extends AppCompatActivity {
         passwordEdit = findViewById(R.id.passwordEdit);
         btnLogin = findViewById(R.id.btnLogin);
         btnGoRegister = findViewById(R.id.btnGoRegister);
+        forgotPassword = findViewById(R.id.forgotPassword);
 
         Intent intent = getIntent();
         if (intent != null) {
@@ -52,6 +55,11 @@ public class LoginActivity extends AppCompatActivity {
         btnGoRegister.setOnClickListener(v -> {
             Intent registerIntent = new Intent(this, RegisterActivity.class);
             startActivity(registerIntent);
+        });
+
+        forgotPassword.setOnClickListener(v -> {
+            Intent forgotPasswordIntent = new Intent(this, ForgotPasswordActivity.class);
+            startActivity(forgotPasswordIntent);
         });
     }
 
