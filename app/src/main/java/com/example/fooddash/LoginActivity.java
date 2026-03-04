@@ -83,10 +83,14 @@ public class LoginActivity extends AppCompatActivity {
         JsonObjectRequest request = new JsonObjectRequest(Request.Method.POST, URL_LOGIN, postData,
                 response -> {
                     try {
-                        String role = normalizeValue(findFirstStringForKeys(response, "role", "user_role"));
-                        String status = normalizeValue(findFirstStringForKeys(response, "status", "account_status"));
+                        JSONObject data = response.optJSONObject("data");
+                        JSONObject user = data != null ? data.optJSONObject("user") : null;
 
-                        if ("driver".equals(role)) {
+                        String role = extractRole(response, data, user);
+                        String status = extractDriverStatus(response, data, user);
+                        boolean isDriver = isDriverRole(role);
+
+                        if (isDriver) {
                             if ("pending".equals(status)) {
                                 Toast.makeText(this, "Account awaiting approval", Toast.LENGTH_LONG).show();
                                 return;
@@ -101,9 +105,6 @@ public class LoginActivity extends AppCompatActivity {
                                 return;
                             }
                         }
-
-                        JSONObject data = response.optJSONObject("data");
-                        JSONObject user = data != null ? data.optJSONObject("user") : null;
 
                         String apiToken = "";
                         if (data != null) {
@@ -127,7 +128,7 @@ public class LoginActivity extends AppCompatActivity {
                         Toast.makeText(this, "Login Successful!", Toast.LENGTH_SHORT).show();
 
                         Intent intent;
-                        if ("driver".equals(role) && "approved".equals(status)) {
+                        if (isDriver) {
                             intent = new Intent(this, DriverDashboard.class);
                         } else {
                             intent = new Intent(this, CustomerDashboard.class);
@@ -166,6 +167,67 @@ public class LoginActivity extends AppCompatActivity {
             return "";
         }
         return value.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private String firstNonEmpty(String... values) {
+        if (values == null) {
+            return "";
+        }
+
+        for (String value : values) {
+            if (value != null && !value.trim().isEmpty()) {
+                return value;
+            }
+        }
+
+        return "";
+    }
+
+    private String normalizeRole(String rawRole) {
+        String normalized = normalizeValue(rawRole);
+        if (normalized.contains("driver")) {
+            return "driver";
+        }
+        if (normalized.contains("customer")) {
+            return "customer";
+        }
+        return normalized;
+    }
+
+    private boolean isDriverRole(String role) {
+        return "driver".equals(role);
+    }
+
+    private boolean isKnownDriverStatus(String status) {
+        return "approved".equals(status) || "pending".equals(status) || "rejected".equals(status);
+    }
+
+    private String extractRole(JSONObject response, JSONObject data, JSONObject user) {
+        String roleValue = firstNonEmpty(
+                findFirstStringForKeys(user, "role", "user_role", "role_name", "user_type", "type"),
+                findFirstStringForKeys(data, "role", "user_role", "role_name", "user_type", "type"),
+                findFirstStringForKeys(response, "role", "user_role", "role_name", "user_type", "type")
+        );
+        return normalizeRole(roleValue);
+    }
+
+    private String extractDriverStatus(JSONObject response, JSONObject data, JSONObject user) {
+        String status = normalizeValue(firstNonEmpty(
+                findFirstStringForKeys(user, "account_status", "driver_status", "status"),
+                findFirstStringForKeys(data, "account_status", "driver_status", "status"),
+                findFirstStringForKeys(response, "account_status", "driver_status")
+        ));
+
+        if (isKnownDriverStatus(status)) {
+            return status;
+        }
+
+        String fallbackStatus = normalizeValue(findFirstStringForKeys(response, "status", "account_status"));
+        if (isKnownDriverStatus(fallbackStatus)) {
+            return fallbackStatus;
+        }
+
+        return status;
     }
 
     private String findFirstStringForKeys(JSONObject source, String... keys) {
