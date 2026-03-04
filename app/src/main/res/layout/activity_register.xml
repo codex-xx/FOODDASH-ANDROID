@@ -87,27 +87,6 @@
                 android:hint="@string/delivery_address"
                 android:inputType="textPostalAddress" />
 
-            <LinearLayout
-                android:id="@+id/driverFieldsContainer"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:visibility="gone">
-
-                <EditText
-                    android:id="@+id/licenseNumberEdit"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:autofillHints=""
-                    android:hint="@string/license_number" />
-
-                <Spinner
-                    android:id="@+id/vehicleTypeSpinner"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:entries="@array/vehicle_types" />
-            </LinearLayout>
-
             <EditText
                 android:id="@+id/emailEdit"
                 android:layout_width="match_parent"
@@ -131,6 +110,70 @@
                 android:autofillHints=""
                 android:hint="@string/confirm_password"
                 android:inputType="textPassword" />
+
+            <LinearLayout
+                android:id="@+id/driverFieldsContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <EditText
+                    android:id="@+id/licenseNumberEdit"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:autofillHints=""
+                    android:hint="@string/license_number" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/vehicle_type"
+                    android:textStyle="bold" />
+
+                <RadioGroup
+                    android:id="@+id/vehicleTypeGroup"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <RadioButton
+                        android:id="@+id/rbMotorcycle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/vehicle_motorcycle" />
+
+                    <RadioButton
+                        android:id="@+id/rbTricycle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/vehicle_tricycle" />
+
+                    <RadioButton
+                        android:id="@+id/rbCab"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/vehicle_cab" />
+                </RadioGroup>
+
+                <CheckBox
+                    android:id="@+id/termsAgreementCheckbox"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/terms_of_agreement" />
+
+                <TextView
+                    android:id="@+id/viewTermsText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:text="@string/view_terms_of_agreement"
+                    android:textStyle="bold" />
+            </LinearLayout>
 
             <Button
                 android:id="@+id/btnRegister"

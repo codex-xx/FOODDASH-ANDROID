@@ -5,12 +5,15 @@ import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.RadioButton;
 import android.widget.RadioGroup;
-import android.widget.Spinner;
+import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.android.volley.Request;
@@ -24,9 +27,16 @@ import java.nio.charset.StandardCharsets;
 
 public class RegisterActivity extends AppCompatActivity {
 
+    private static final String NAME_REGEX = "^[A-Za-z ]+$";
+    private static final String CONTACT_REGEX = "^\\d+$";
+    private static final String ADDRESS_REGEX = "^[A-Za-z0-9 .,#/\\-]+$";
+    private static final String LICENSE_REGEX = "^[A-Za-z0-9 -]+$";
+
     EditText nameEdit, contactEdit, addressEdit, emailEdit, passwordEdit, confirmPasswordEdit;
     EditText licenseNumberEdit;
-    Spinner vehicleTypeSpinner;
+    RadioGroup vehicleTypeGroup;
+    CheckBox termsAgreementCheckbox;
+    TextView viewTermsText;
     LinearLayout driverFieldsContainer;
     RadioGroup roleGroup;
     Button btnRegister, btnLogin;
@@ -43,12 +53,16 @@ public class RegisterActivity extends AppCompatActivity {
         addressEdit = findViewById(R.id.addressEdit);
         driverFieldsContainer = findViewById(R.id.driverFieldsContainer);
         licenseNumberEdit = findViewById(R.id.licenseNumberEdit);
-        vehicleTypeSpinner = findViewById(R.id.vehicleTypeSpinner);
+        vehicleTypeGroup = findViewById(R.id.vehicleTypeGroup);
+        termsAgreementCheckbox = findViewById(R.id.termsAgreementCheckbox);
+        viewTermsText = findViewById(R.id.viewTermsText);
         emailEdit = findViewById(R.id.emailEdit);
         passwordEdit = findViewById(R.id.passwordEdit);
         confirmPasswordEdit = findViewById(R.id.confirmPasswordEdit);
         btnRegister = findViewById(R.id.btnRegister);
         btnLogin = findViewById(R.id.btnLogin);
+
+        viewTermsText.setOnClickListener(v -> showTermsDialog());
 
         roleGroup.setOnCheckedChangeListener((group, checkedId) -> {
             boolean isDriver = checkedId == R.id.rbDriver;
@@ -57,7 +71,8 @@ public class RegisterActivity extends AppCompatActivity {
 
             if (!isDriver) {
                 licenseNumberEdit.setText("");
-                vehicleTypeSpinner.setSelection(0);
+                vehicleTypeGroup.clearCheck();
+                termsAgreementCheckbox.setChecked(false);
             }
         });
 
@@ -67,6 +82,14 @@ public class RegisterActivity extends AppCompatActivity {
             startActivity(new Intent(this, LoginActivity.class));
             finish();
         });
+    }
+
+    private void showTermsDialog() {
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.terms_dialog_title)
+                .setMessage(R.string.terms_dialog_content)
+                .setPositiveButton(android.R.string.ok, null)
+                .show();
     }
 
     private void registerUser() {
@@ -80,9 +103,15 @@ public class RegisterActivity extends AppCompatActivity {
         String password = passwordEdit.getText().toString().trim();
         String confirmPassword = confirmPasswordEdit.getText().toString().trim();
         String licenseNumber = licenseNumberEdit.getText().toString().trim();
-        String vehicleType = vehicleTypeSpinner.getSelectedItem() != null
-                ? vehicleTypeSpinner.getSelectedItem().toString().trim()
-                : "";
+        int selectedVehicleId = vehicleTypeGroup.getCheckedRadioButtonId();
+        String vehicleType = "";
+        if (selectedVehicleId != -1) {
+            RadioButton selectedVehicleButton = findViewById(selectedVehicleId);
+            if (selectedVehicleButton != null) {
+                vehicleType = selectedVehicleButton.getText().toString().trim();
+            }
+        }
+        boolean hasAcceptedTerms = termsAgreementCheckbox.isChecked();
         boolean isDriver = "driver".equals(role);
 
         if (role.isEmpty() || name.isEmpty() || contactNumber.isEmpty()
@@ -96,8 +125,33 @@ public class RegisterActivity extends AppCompatActivity {
             return;
         }
 
-        if (isDriver && (licenseNumber.isEmpty() || vehicleType.isEmpty() || "Select Vehicle Type".equalsIgnoreCase(vehicleType))) {
+        if (isDriver && (licenseNumber.isEmpty() || vehicleType.isEmpty())) {
             Toast.makeText(this, "Please fill all driver fields", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        if (!name.matches(NAME_REGEX)) {
+            Toast.makeText(this, "Name must contain letters and spaces only", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        if (!contactNumber.matches(CONTACT_REGEX)) {
+            Toast.makeText(this, "Contact number must contain digits only", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        if (!isDriver && !deliveryAddress.matches(ADDRESS_REGEX)) {
+            Toast.makeText(this, "Delivery address contains invalid special characters", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        if (isDriver && !licenseNumber.matches(LICENSE_REGEX)) {
+            Toast.makeText(this, "License number contains invalid special characters", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        if (isDriver && !hasAcceptedTerms) {
+            Toast.makeText(this, "Please accept the Terms of Agreement", Toast.LENGTH_SHORT).show();
             return;
         }
 
