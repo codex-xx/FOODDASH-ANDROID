@@ -169,11 +169,10 @@ public class RegisterActivity extends AppCompatActivity {
             postData.put("password_confirmation", confirmPassword);
             postData.put("role", role);
             postData.put("status", "customer".equals(role) ? "active" : "pending");
+            postData.put("delivery_address", isDriver ? "" : deliveryAddress);
             if (isDriver) {
                 postData.put("license_number", licenseNumber);
                 postData.put("vehicle_type", vehicleType);
-            } else {
-                postData.put("delivery_address", deliveryAddress);
             }
         } catch (JSONException e) {
             Log.e("RegisterActivity", "Failed to create JSON object", e);
@@ -184,6 +183,12 @@ public class RegisterActivity extends AppCompatActivity {
                 response -> {
                     boolean isSuccess = response.optBoolean("success", false) || "success".equals(response.optString("status"));
                     if (isSuccess) {
+                        if ("customer".equals(role)) {
+                            EmailNotificationService.sendCustomerRegistrationSuccess(getApplicationContext(), email, name);
+                        } else {
+                            EmailNotificationService.sendDriverApplicationReceived(getApplicationContext(), email, name);
+                        }
+
                         String successMessage = "customer".equals(role)
                                 ? "Registration successful. Please log in."
                                 : "Driver account created and awaiting admin approval.";

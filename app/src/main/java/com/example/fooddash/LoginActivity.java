@@ -23,6 +23,9 @@ import java.util.Locale;
 
 public class LoginActivity extends AppCompatActivity {
 
+    private static final String PREFS_NAME = "fooddash_prefs";
+    private static final String DRIVER_APPROVAL_EMAIL_SENT_PREFIX = "driver_approval_email_sent_";
+
     EditText emailEdit, passwordEdit;
     Button btnLogin, btnGoRegister;
     TextView forgotPassword;
@@ -63,9 +66,9 @@ public class LoginActivity extends AppCompatActivity {
         });
     }
 
-    private void loginUser(String email, String password) {
-        email = email.trim();
-        password = password.trim();
+    private void loginUser(String emailInput, String passwordInput) {
+        final String email = emailInput == null ? "" : emailInput.trim();
+        String password = passwordInput == null ? "" : passwordInput.trim();
 
         if (email.isEmpty() || password.isEmpty()) {
             Toast.makeText(this, "Please enter email and password", Toast.LENGTH_SHORT).show();
@@ -122,8 +125,15 @@ public class LoginActivity extends AppCompatActivity {
                             return;
                         }
 
-                        SharedPreferences prefs = getApplicationContext().getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
+                        SharedPreferences prefs = getApplicationContext().getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
                         prefs.edit().putString("api_token", apiToken).apply();
+                        if (isDriver) {
+                            prefs.edit().putString("driver_email", email).apply();
+                        }
+
+                        if (isDriver && "approved".equals(status)) {
+                            maybeSendDriverApprovalEmail(email, response, data, user);
+                        }
 
                         Toast.makeText(this, "Login Successful!", Toast.LENGTH_SHORT).show();
 
@@ -160,6 +170,31 @@ public class LoginActivity extends AppCompatActivity {
         );
 
         Volley.newRequestQueue(this).add(request);
+    }
+
+    private void maybeSendDriverApprovalEmail(String email, JSONObject response, JSONObject data, JSONObject user) {
+        if (!EmailNotificationService.isGmailAddress(email)) {
+            return;
+        }
+
+        SharedPreferences prefs = getApplicationContext().getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        String sentFlagKey = DRIVER_APPROVAL_EMAIL_SENT_PREFIX + normalizeValue(email);
+        if (prefs.getBoolean(sentFlagKey, false)) {
+            return;
+        }
+
+        String driverName = firstNonEmpty(
+                findFirstStringForKeys(user, "name", "full_name"),
+                findFirstStringForKeys(data, "name", "full_name"),
+                findFirstStringForKeys(response, "name", "full_name")
+        );
+
+        EmailNotificationService.sendDriverApplicationApproved(
+                getApplicationContext(),
+                email,
+                driverName,
+                () -> prefs.edit().putBoolean(sentFlagKey, true).apply()
+        );
     }
 
     private String normalizeValue(String value) {
