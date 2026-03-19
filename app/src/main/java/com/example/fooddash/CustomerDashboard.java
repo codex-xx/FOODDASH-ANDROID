@@ -9,14 +9,14 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.ImageButton;
-import android.widget.RadioButton;
+import android.widget.ImageView;
 import android.widget.RadioGroup;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import org.json.JSONArray;
@@ -52,15 +52,18 @@ public class CustomerDashboard extends AppCompatActivity {
         vehicleRadioGroup = findViewById(R.id.vehicleRadioGroup);
         totalPriceTextView = findViewById(R.id.totalPriceTextView);
 
-        productsRecyclerView.setLayoutManager(new LinearLayoutManager(this));
+        productsRecyclerView.setLayoutManager(new GridLayoutManager(this, 2));
 
         productList = new ArrayList<>();
-        productList.add(new Product("Burger", "A delicious beef burger", 550.00));
-        productList.add(new Product("Pizza", "Cheesy pepperoni pizza", 800.00));
-        productList.add(new Product("Salad", "A healthy green salad", 400.00));
+        productList.add(new Product("Classic Cheeseburger", "Juicy beef patty with cheddar, pickles, and signature burger sauce.", 149.00, R.drawable.classic_cheeseburger));
+        productList.add(new Product("Crispy Chicken Sandwich", "Crispy chicken fillet, lettuce, and mayo on a toasted brioche bun.", 159.00, R.drawable.crispy_chicken_sandwich));
+        productList.add(new Product("Double Bacon Burger", "Two beef patties, smoky bacon strips, melted cheese, and onion jam.", 199.00, R.drawable.double_bacon_burger));
+        productList.add(new Product("Loaded Fries", "Seasoned fries topped with cheese sauce, crispy bits, and spring onions.", 119.00, R.drawable.loaded_fries_with_cheese_and_bacon));
+        productList.add(new Product("Chicken Nuggets Combo", "Eight crispy nuggets with dip, fries, and a regular soft drink.", 169.00, R.drawable.crispy_chicken_nuggets_with_fries));
 
         adapter = new ProductAdapter(productList);
         productsRecyclerView.setAdapter(adapter);
+        calculateTotalPrice();
 
         btnPlaceOrder.setOnClickListener(v -> placeOrder());
 
@@ -83,7 +86,7 @@ public class CustomerDashboard extends AppCompatActivity {
     }
 
     private void calculateTotalPrice() {
-        totalPriceTextView.setText(String.format(Locale.getDefault(), "Total: ₱%.2f", calculateTotal()));
+        totalPriceTextView.setText(String.format(Locale.getDefault(), "₱%.2f", calculateTotal()));
     }
 
     private void placeOrder() {
@@ -168,12 +171,14 @@ public class CustomerDashboard extends AppCompatActivity {
         String name;
         String description;
         double price;
+        int imageResId;
         int quantity = 0;
 
-        public Product(String name, String description, double price) {
+        public Product(String name, String description, double price, int imageResId) {
             this.name = name;
             this.description = description;
             this.price = price;
+            this.imageResId = imageResId;
         }
 
         public String getName() {
@@ -186,6 +191,10 @@ public class CustomerDashboard extends AppCompatActivity {
 
         public double getPrice() {
             return price;
+        }
+
+        public int getImageResId() {
+            return imageResId;
         }
 
         public int getQuantity() {
@@ -216,21 +225,32 @@ public class CustomerDashboard extends AppCompatActivity {
         @Override
         public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
             Product product = products.get(position);
+            holder.productImageView.setImageResource(product.getImageResId());
             holder.productNameTextView.setText(product.getName());
             holder.productDescriptionTextView.setText(product.getDescription());
             holder.productPriceTextView.setText(String.format(Locale.getDefault(), "₱%.2f", product.getPrice()));
             holder.quantityTextView.setText(String.valueOf(product.getQuantity()));
 
             holder.plusButton.setOnClickListener(v -> {
-                product.setQuantity(product.getQuantity() + 1);
-                notifyItemChanged(position);
+                int adapterPosition = holder.getAdapterPosition();
+                if (adapterPosition == RecyclerView.NO_POSITION) {
+                    return;
+                }
+                Product updatedProduct = products.get(adapterPosition);
+                updatedProduct.setQuantity(updatedProduct.getQuantity() + 1);
+                notifyItemChanged(adapterPosition);
                 calculateTotalPrice();
             });
 
             holder.minusButton.setOnClickListener(v -> {
-                if (product.getQuantity() > 0) {
-                    product.setQuantity(product.getQuantity() - 1);
-                    notifyItemChanged(position);
+                int adapterPosition = holder.getAdapterPosition();
+                if (adapterPosition == RecyclerView.NO_POSITION) {
+                    return;
+                }
+                Product updatedProduct = products.get(adapterPosition);
+                if (updatedProduct.getQuantity() > 0) {
+                    updatedProduct.setQuantity(updatedProduct.getQuantity() - 1);
+                    notifyItemChanged(adapterPosition);
                     calculateTotalPrice();
                 }
             });
@@ -253,10 +273,12 @@ public class CustomerDashboard extends AppCompatActivity {
 
         public class ViewHolder extends RecyclerView.ViewHolder {
             TextView productNameTextView, productDescriptionTextView, productPriceTextView, quantityTextView;
+            ImageView productImageView;
             ImageButton plusButton, minusButton;
 
             public ViewHolder(@NonNull View itemView) {
                 super(itemView);
+                productImageView = itemView.findViewById(R.id.productImageView);
                 productNameTextView = itemView.findViewById(R.id.productNameTextView);
                 productDescriptionTextView = itemView.findViewById(R.id.productDescriptionTextView);
                 productPriceTextView = itemView.findViewById(R.id.productPriceTextView);

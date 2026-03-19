@@ -4,4 +4,10 @@
     <color name="white">#FFFFFFFF</color>
     <color name="faded_orange">#FFCC80</color>
     <color name="light_faded_orange">#FFF2E0</color>
+    <color name="dashboard_bg">#FFE8F4EA</color>
+    <color name="product_card_bg">#FFD3F0D6</color>
+    <color name="product_card_stroke">#FF0F6C3C</color>
+    <color name="product_title">#FF07512D</color>
+    <color name="product_subtitle">#FF3E6A54</color>
+    <color name="product_price">#FF0A6A3A</color>
 </resources>
