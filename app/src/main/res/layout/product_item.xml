@@ -97,6 +97,16 @@
                 app:tint="@color/product_title" />
         </LinearLayout>
 
+        <Button
+            android:id="@+id/addToCartButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:backgroundTint="@color/product_price"
+            android:text="Add to Cart"
+            android:textColor="@color/white"
+            android:textSize="12sp" />
+
     </LinearLayout>
 
 </com.google.android.material.card.MaterialCardView>

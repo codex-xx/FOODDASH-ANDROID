@@ -3,11 +3,12 @@ package com.example.fooddash;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Bundle;
-import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.CheckBox;
+import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.RadioGroup;
@@ -15,16 +16,11 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
-import org.json.JSONArray;
-import org.json.JSONObject;
-
-import java.io.DataOutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -32,14 +28,12 @@ import java.util.Locale;
 public class CustomerDashboard extends AppCompatActivity {
 
     private RecyclerView productsRecyclerView;
-    private Button btnPlaceOrder, btnLogout;
+    private Button btnPlaceOrder;
+    private Button btnLogout;
     private RadioGroup vehicleRadioGroup;
     private TextView totalPriceTextView;
     private ProductAdapter adapter;
     private List<Product> productList;
-
-    // Use the centralized URL from Constants
-    private static final String API_URL = Constants.BASE_URL + "orders";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -55,163 +49,176 @@ public class CustomerDashboard extends AppCompatActivity {
         productsRecyclerView.setLayoutManager(new GridLayoutManager(this, 2));
 
         productList = new ArrayList<>();
-        productList.add(new Product("Classic Cheeseburger", "Juicy beef patty with cheddar, pickles, and signature burger sauce.", 149.00, R.drawable.classic_cheeseburger));
-        productList.add(new Product("Crispy Chicken Sandwich", "Crispy chicken fillet, lettuce, and mayo on a toasted brioche bun.", 159.00, R.drawable.crispy_chicken_sandwich));
-        productList.add(new Product("Double Bacon Burger", "Two beef patties, smoky bacon strips, melted cheese, and onion jam.", 199.00, R.drawable.double_bacon_burger));
-        productList.add(new Product("Loaded Fries", "Seasoned fries topped with cheese sauce, crispy bits, and spring onions.", 119.00, R.drawable.loaded_fries_with_cheese_and_bacon));
-        productList.add(new Product("Chicken Nuggets Combo", "Eight crispy nuggets with dip, fries, and a regular soft drink.", 169.00, R.drawable.crispy_chicken_nuggets_with_fries));
+        productList.add(new Product("Classic Cheeseburger", "Juicy beef patty with cheddar, pickles, and signature burger sauce.", 149.00, R.drawable.classic_cheeseburger, "Extra Cheese", 20.00, "Bacon Strips", 35.00));
+        productList.add(new Product("Crispy Chicken Sandwich", "Crispy chicken fillet, lettuce, and mayo on a toasted brioche bun.", 159.00, R.drawable.crispy_chicken_sandwich, "Extra Mayo", 10.00, "Cheese Slice", 20.00));
+        productList.add(new Product("Double Bacon Burger", "Two beef patties, smoky bacon strips, melted cheese, and onion jam.", 199.00, R.drawable.double_bacon_burger, "Caramelized Onion", 15.00, "More Bacon", 40.00));
+        productList.add(new Product("Loaded Fries", "Seasoned fries topped with cheese sauce, crispy bits, and spring onions.", 119.00, R.drawable.loaded_fries_with_cheese_and_bacon, "Extra Cheese Sauce", 25.00, "Jalapeno", 15.00));
+        productList.add(new Product("Chicken Nuggets Combo", "Eight crispy nuggets with dip, fries, and a regular soft drink.", 169.00, R.drawable.crispy_chicken_nuggets_with_fries, "Extra Nuggets", 45.00, "Upgrade Drink", 20.00));
 
         adapter = new ProductAdapter(productList);
         productsRecyclerView.setAdapter(adapter);
-        calculateTotalPrice();
+        updateCartSummary();
 
-        btnPlaceOrder.setOnClickListener(v -> placeOrder());
+        btnPlaceOrder.setOnClickListener(v -> openCartReview());
 
         btnLogout.setOnClickListener(v -> {
-            // Clear session/token using Application Context
             SharedPreferences prefs = getApplicationContext().getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
             prefs.edit().clear().apply();
+            OrderFlowManager.clearFlow();
 
             startActivity(new Intent(this, LoginActivity.class));
             finish();
         });
     }
 
-    private double calculateTotal() {
-        double total = 0;
-        for (Product product : productList) {
-            total += product.getPrice() * product.getQuantity();
-        }
-        return total;
+    @Override
+    protected void onResume() {
+        super.onResume();
+        updateCartSummary();
     }
 
-    private void calculateTotalPrice() {
-        totalPriceTextView.setText(String.format(Locale.getDefault(), "₱%.2f", calculateTotal()));
+    private void updateCartSummary() {
+        totalPriceTextView.setText(String.format(Locale.getDefault(), "₱%.2f", OrderFlowManager.getSubtotal()));
+        btnPlaceOrder.setText(String.format(Locale.getDefault(), "Review Cart (%d)", OrderFlowManager.getCartItemCount()));
     }
 
-    private void placeOrder() {
-        List<Product> selectedProducts = adapter.getSelectedProducts();
-        if (selectedProducts.isEmpty()) {
-            Toast.makeText(this, "Please select at least one product", Toast.LENGTH_SHORT).show();
+    private void openCartReview() {
+        if (OrderFlowManager.isCartEmpty()) {
+            Toast.makeText(this, "Add items to cart first.", Toast.LENGTH_SHORT).show();
             return;
         }
+        startActivity(new Intent(this, CartReviewActivity.class));
+    }
 
-        // Get token from SharedPreferences using Application Context
-        SharedPreferences prefs = getApplicationContext().getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
-        String token = prefs.getString("api_token", null);
-        Log.d("CustomerDashboard", "Retrieved token for order: " + token);
-        if (token == null || token.isEmpty()) {
-            Toast.makeText(this, "You are not logged in. Please log in again.", Toast.LENGTH_SHORT).show();
-            return;
-        }
+    private void showCustomizeDialog(Product product, int adapterPosition) {
+        View dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_customize_item, null, false);
 
-        new Thread(() -> {
-            HttpURLConnection conn = null;
-            try {
-                URL url = new URL(API_URL);
-                conn = (HttpURLConnection) url.openConnection();
-                conn.setRequestMethod("POST");
-                conn.setRequestProperty("Content-Type", "application/json;charset=UTF-8");
-                conn.setRequestProperty("Accept", "application/json");
-                conn.setRequestProperty("Authorization", "Bearer " + token);
-                conn.setDoOutput(true);
-                conn.setDoInput(true);
+        TextView productName = dialogView.findViewById(R.id.customizeProductNameTextView);
+        TextView basePrice = dialogView.findViewById(R.id.customizeBasePriceTextView);
+        TextView quantityText = dialogView.findViewById(R.id.customizeQuantityTextView);
+        ImageButton minusButton = dialogView.findViewById(R.id.customizeMinusButton);
+        ImageButton plusButton = dialogView.findViewById(R.id.customizePlusButton);
+        CheckBox addOnOne = dialogView.findViewById(R.id.addOnOneCheckBox);
+        CheckBox addOnTwo = dialogView.findViewById(R.id.addOnTwoCheckBox);
+        EditText preferenceEditText = dialogView.findViewById(R.id.customPreferenceEditText);
 
-                JSONObject jsonPayload = new JSONObject();
-                // NOTE: Hardcoding restaurant_id and delivery_address as they are not in the UI
-                jsonPayload.put("restaurant_id", 1);
-                jsonPayload.put("total_amount", calculateTotal());
-                jsonPayload.put("delivery_address", "123 Food Street, App City");
+        productName.setText(product.getName());
+        basePrice.setText(String.format(Locale.getDefault(), "Base Price: ₱%.2f", product.getPrice()));
 
-                JSONArray itemsArray = new JSONArray();
-                for (Product product : selectedProducts) {
-                    JSONObject item = new JSONObject();
-                    item.put("name", product.getName());
-                    item.put("quantity", product.getQuantity());
-                    item.put("price", product.getPrice());
-                    itemsArray.put(item);
-                }
-                jsonPayload.put("items", itemsArray);
+        final int[] selectedQuantity = {Math.max(1, product.getQuantity())};
+        quantityText.setText(String.valueOf(selectedQuantity[0]));
 
+        minusButton.setOnClickListener(v -> {
+            selectedQuantity[0] = Math.max(1, selectedQuantity[0] - 1);
+            quantityText.setText(String.valueOf(selectedQuantity[0]));
+        });
 
-                DataOutputStream os = new DataOutputStream(conn.getOutputStream());
-                os.writeBytes(jsonPayload.toString());
-                os.flush();
-                os.close();
+        plusButton.setOnClickListener(v -> {
+            selectedQuantity[0] = selectedQuantity[0] + 1;
+            quantityText.setText(String.valueOf(selectedQuantity[0]));
+        });
 
-                int responseCode = conn.getResponseCode();
-                if (responseCode == HttpURLConnection.HTTP_CREATED) {
-                    runOnUiThread(() -> {
-                        Toast.makeText(CustomerDashboard.this, "Order placed successfully!", Toast.LENGTH_LONG).show();
-                        // Reset quantities
-                        for(Product p : productList) p.setQuantity(0);
-                        adapter.notifyDataSetChanged();
-                        calculateTotalPrice();
-                    });
-                } else {
-                    final String errorResponse = new java.util.Scanner(conn.getErrorStream()).useDelimiter("\\A").next();
-                    Log.e("CustomerDashboard", "Error response from server (" + responseCode + "): " + errorResponse);
-                    runOnUiThread(() -> Toast.makeText(CustomerDashboard.this, "Failed to place order. Server code: " + responseCode, Toast.LENGTH_LONG).show());
-                }
+        addOnOne.setText(String.format(Locale.getDefault(), "%s (+₱%.2f)", product.getAddOnOneName(), product.getAddOnOnePrice()));
+        addOnTwo.setText(String.format(Locale.getDefault(), "%s (+₱%.2f)", product.getAddOnTwoName(), product.getAddOnTwoPrice()));
 
-            } catch (Exception e) {
-                e.printStackTrace();
-                runOnUiThread(() -> Toast.makeText(CustomerDashboard.this, "Error placing order: " + e.getMessage(), Toast.LENGTH_LONG).show());
-            } finally {
-                if (conn != null) {
-                    conn.disconnect();
-                }
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("Customize Item")
+                .setView(dialogView)
+                .setPositiveButton("Add to Cart", null)
+                .setNegativeButton("Cancel", null)
+                .create();
+
+        dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            List<OrderFlowManager.AddOnSelection> addOnSelections = new ArrayList<>();
+            if (addOnOne.isChecked()) {
+                addOnSelections.add(new OrderFlowManager.AddOnSelection(product.getAddOnOneName(), product.getAddOnOnePrice()));
             }
-        }).start();
+            if (addOnTwo.isChecked()) {
+                addOnSelections.add(new OrderFlowManager.AddOnSelection(product.getAddOnTwoName(), product.getAddOnTwoPrice()));
+            }
+
+            String preference = preferenceEditText.getText() == null ? "" : preferenceEditText.getText().toString().trim();
+            OrderFlowManager.addItem(product.getName(), product.getPrice(), selectedQuantity[0], addOnSelections, preference);
+
+            product.setQuantity(selectedQuantity[0]);
+            adapter.notifyItemChanged(adapterPosition);
+            updateCartSummary();
+
+            Toast.makeText(this, "Added to cart.", Toast.LENGTH_SHORT).show();
+            dialog.dismiss();
+        }));
+
+        dialog.show();
     }
 
-
-    // Product data model
     private static class Product {
-        String name;
-        String description;
-        double price;
-        int imageResId;
-        int quantity = 0;
+        private final String name;
+        private final String description;
+        private final double price;
+        private final int imageResId;
+        private int quantity = 0;
+        private final String addOnOneName;
+        private final double addOnOnePrice;
+        private final String addOnTwoName;
+        private final double addOnTwoPrice;
 
-        public Product(String name, String description, double price, int imageResId) {
+        Product(String name, String description, double price, int imageResId, String addOnOneName, double addOnOnePrice, String addOnTwoName, double addOnTwoPrice) {
             this.name = name;
             this.description = description;
             this.price = price;
             this.imageResId = imageResId;
+            this.addOnOneName = addOnOneName;
+            this.addOnOnePrice = addOnOnePrice;
+            this.addOnTwoName = addOnTwoName;
+            this.addOnTwoPrice = addOnTwoPrice;
         }
 
-        public String getName() {
+        String getName() {
             return name;
         }
 
-        public String getDescription() {
+        String getDescription() {
             return description;
         }
 
-        public double getPrice() {
+        double getPrice() {
             return price;
         }
 
-        public int getImageResId() {
+        int getImageResId() {
             return imageResId;
         }
 
-        public int getQuantity() {
+        int getQuantity() {
             return quantity;
         }
 
-        public void setQuantity(int quantity) {
+        void setQuantity(int quantity) {
             this.quantity = quantity;
+        }
+
+        String getAddOnOneName() {
+            return addOnOneName;
+        }
+
+        double getAddOnOnePrice() {
+            return addOnOnePrice;
+        }
+
+        String getAddOnTwoName() {
+            return addOnTwoName;
+        }
+
+        double getAddOnTwoPrice() {
+            return addOnTwoPrice;
         }
     }
 
-    // RecyclerView Adapter
     private class ProductAdapter extends RecyclerView.Adapter<ProductAdapter.ViewHolder> {
 
-        private List<Product> products;
+        private final List<Product> products;
 
-        public ProductAdapter(List<Product> products) {
+        ProductAdapter(List<Product> products) {
             this.products = products;
         }
 
@@ -239,7 +246,6 @@ public class CustomerDashboard extends AppCompatActivity {
                 Product updatedProduct = products.get(adapterPosition);
                 updatedProduct.setQuantity(updatedProduct.getQuantity() + 1);
                 notifyItemChanged(adapterPosition);
-                calculateTotalPrice();
             });
 
             holder.minusButton.setOnClickListener(v -> {
@@ -251,8 +257,22 @@ public class CustomerDashboard extends AppCompatActivity {
                 if (updatedProduct.getQuantity() > 0) {
                     updatedProduct.setQuantity(updatedProduct.getQuantity() - 1);
                     notifyItemChanged(adapterPosition);
-                    calculateTotalPrice();
                 }
+            });
+
+            holder.addToCartButton.setOnClickListener(v -> {
+                int adapterPosition = holder.getAdapterPosition();
+                if (adapterPosition == RecyclerView.NO_POSITION) {
+                    return;
+                }
+
+                Product selectedProduct = products.get(adapterPosition);
+                if (selectedProduct.getQuantity() <= 0) {
+                    Toast.makeText(CustomerDashboard.this, "Set quantity first.", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+
+                showCustomizeDialog(selectedProduct, adapterPosition);
             });
         }
 
@@ -261,28 +281,24 @@ public class CustomerDashboard extends AppCompatActivity {
             return products.size();
         }
 
-        public List<Product> getSelectedProducts() {
-            List<Product> selectedProducts = new ArrayList<>();
-            for (Product product : products) {
-                if (product.getQuantity() > 0) {
-                    selectedProducts.add(product);
-                }
-            }
-            return selectedProducts;
-        }
+        class ViewHolder extends RecyclerView.ViewHolder {
+            private final TextView productNameTextView;
+            private final TextView productDescriptionTextView;
+            private final TextView productPriceTextView;
+            private final TextView quantityTextView;
+            private final ImageView productImageView;
+            private final Button addToCartButton;
+            private final ImageButton plusButton;
+            private final ImageButton minusButton;
 
-        public class ViewHolder extends RecyclerView.ViewHolder {
-            TextView productNameTextView, productDescriptionTextView, productPriceTextView, quantityTextView;
-            ImageView productImageView;
-            ImageButton plusButton, minusButton;
-
-            public ViewHolder(@NonNull View itemView) {
+            ViewHolder(@NonNull View itemView) {
                 super(itemView);
                 productImageView = itemView.findViewById(R.id.productImageView);
                 productNameTextView = itemView.findViewById(R.id.productNameTextView);
                 productDescriptionTextView = itemView.findViewById(R.id.productDescriptionTextView);
                 productPriceTextView = itemView.findViewById(R.id.productPriceTextView);
                 quantityTextView = itemView.findViewById(R.id.quantityTextView);
+                addToCartButton = itemView.findViewById(R.id.addToCartButton);
                 plusButton = itemView.findViewById(R.id.plusButton);
                 minusButton = itemView.findViewById(R.id.minusButton);
             }
