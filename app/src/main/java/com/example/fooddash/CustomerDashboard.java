@@ -21,6 +21,7 @@ import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
@@ -44,6 +45,10 @@ import java.util.List;
 import java.util.Locale;
 
 public class CustomerDashboard extends AppCompatActivity {
+
+    private static final int PREVIEW_RESTAURANT_LIMIT = 3;
+    private static final int PREVIEW_ITEMS_PER_RESTAURANT = 2;
+    private static final int PREVIEW_TOTAL_ITEMS_LIMIT = 8;
 
     private RecyclerView restaurantsRecyclerView;
     private RecyclerView productsRecyclerView;
@@ -87,7 +92,7 @@ public class CustomerDashboard extends AppCompatActivity {
         totalPriceTextView = findViewById(R.id.totalPriceTextView);
 
         restaurantsRecyclerView.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
-        productsRecyclerView.setLayoutManager(new LinearLayoutManager(this));
+        productsRecyclerView.setLayoutManager(new GridLayoutManager(this, 2));
         requestQueue = Volley.newRequestQueue(this);
         restaurantId = getIntent().getIntExtra("restaurant_id", -1);
 
@@ -100,7 +105,7 @@ public class CustomerDashboard extends AppCompatActivity {
         productsRecyclerView.setAdapter(adapter);
         swipeRefreshLayout.setOnRefreshListener(() -> fetchRestaurants(false));
         showEmpty("Loading restaurants...");
-        selectedRestaurantTextView.setText("Select a restaurant");
+        selectedRestaurantTextView.setText("Mixed picks from partner restaurants");
 
         btnPlaceOrder.setOnClickListener(v -> placeOrder());
 
@@ -218,12 +223,12 @@ public class CustomerDashboard extends AppCompatActivity {
             productList.clear();
             adapter.notifyDataSetChanged();
             calculateTotalPrice();
-            selectedRestaurantTextView.setText("Select a restaurant");
+            selectedRestaurantTextView.setText("Mixed picks from partner restaurants");
             showEmpty("No partner restaurants available.");
             return;
         }
 
-        int selectedPosition = 0;
+        int selectedPosition = -1;
         for (int i = 0; i < restaurantList.size(); i++) {
             if (restaurantList.get(i).getId() == previousRestaurantId) {
                 selectedPosition = i;
@@ -231,7 +236,14 @@ public class CustomerDashboard extends AppCompatActivity {
             }
         }
 
-        selectRestaurant(selectedPosition, true);
+        if (selectedPosition >= 0) {
+            selectRestaurant(selectedPosition, true);
+        } else {
+            restaurantId = -1;
+            selectedRestaurantPosition = -1;
+            restaurantAdapter.notifyDataSetChanged();
+            fetchMixedMenuPreview(true);
+        }
     }
 
     private void selectRestaurant(int position, boolean fetchMenuNow) {
@@ -250,11 +262,22 @@ public class CustomerDashboard extends AppCompatActivity {
         }
     }
 
-    private void fetchMenu(boolean showBlockingLoader) {
-        if (restaurantId <= 0) {
+    private void clearRestaurantSelection(boolean fetchMenuNow) {
+        restaurantId = -1;
+        selectedRestaurantPosition = -1;
+        selectedRestaurantTextView.setText("Mixed picks from partner restaurants");
+        restaurantAdapter.notifyDataSetChanged();
+
+        if (fetchMenuNow) {
+            fetchMixedMenuPreview(true);
+        }
+    }
+
+    private void fetchMixedMenuPreview(boolean showBlockingLoader) {
+        if (restaurantList.isEmpty()) {
             loadingProgressBar.setVisibility(View.GONE);
             swipeRefreshLayout.setRefreshing(false);
-            showEmpty("Select a restaurant to view menu.");
+            showEmpty("No partner restaurants available.");
             return;
         }
 
@@ -263,10 +286,80 @@ public class CustomerDashboard extends AppCompatActivity {
             emptyMessageTextView.setVisibility(View.GONE);
         }
 
-        String menuUrl = MENU_BY_RESTAURANT_ENDPOINT + "?restaurant_id=" + restaurantId;
-        String legacyMenuUrl = LEGACY_MENU_ENDPOINT + "?restaurant_id=" + restaurantId;
+        selectedRestaurantTextView.setText("Mixed picks from partner restaurants");
 
-        Response.Listener<JSONArray> successListener = this::applyMenuData;
+        int restaurantCount = Math.min(PREVIEW_RESTAURANT_LIMIT, restaurantList.size());
+        List<Product> mixedProducts = new ArrayList<>();
+        final int[] pendingRequests = {restaurantCount};
+
+        for (int i = 0; i < restaurantCount; i++) {
+            Restaurant restaurant = restaurantList.get(i);
+            requestMenuArrayForRestaurant(
+                    restaurant.getId(),
+                    menus -> {
+                        addPreviewProducts(mixedProducts, menus, restaurant.getName());
+                        pendingRequests[0]--;
+                        if (pendingRequests[0] == 0) {
+                            applyMixedPreviewData(mixedProducts);
+                        }
+                    },
+                    error -> {
+                        Log.e("CustomerDashboard", "Preview fetch failed for restaurant " + restaurant.getId(), error);
+                        pendingRequests[0]--;
+                        if (pendingRequests[0] == 0) {
+                            applyMixedPreviewData(mixedProducts);
+                        }
+                    }
+            );
+        }
+    }
+
+    private void applyMixedPreviewData(List<Product> mixedProducts) {
+        productList.clear();
+        productList.addAll(mixedProducts);
+
+        loadingProgressBar.setVisibility(View.GONE);
+        swipeRefreshLayout.setRefreshing(false);
+        adapter.notifyDataSetChanged();
+        calculateTotalPrice();
+
+        if (productList.isEmpty()) {
+            showEmpty("No menu available right now.");
+        } else {
+            emptyMessageTextView.setVisibility(View.GONE);
+        }
+    }
+
+    private void addPreviewProducts(List<Product> destination, JSONArray menus, String restaurantName) {
+        int addedForRestaurant = 0;
+        for (int i = 0; i < menus.length(); i++) {
+            if (destination.size() >= PREVIEW_TOTAL_ITEMS_LIMIT || addedForRestaurant >= PREVIEW_ITEMS_PER_RESTAURANT) {
+                break;
+            }
+
+            JSONObject item = menus.optJSONObject(i);
+            if (item == null) {
+                continue;
+            }
+
+            destination.add(parseProductFromJson(item, restaurantName, true));
+            addedForRestaurant++;
+        }
+    }
+
+    private void fetchMenu(boolean showBlockingLoader) {
+        if (restaurantId <= 0) {
+            loadingProgressBar.setVisibility(View.GONE);
+            swipeRefreshLayout.setRefreshing(false);
+            showEmpty("Tap a restaurant to view the full menu.");
+            return;
+        }
+
+        if (showBlockingLoader) {
+            loadingProgressBar.setVisibility(View.VISIBLE);
+            emptyMessageTextView.setVisibility(View.GONE);
+        }
+
         Response.ErrorListener errorListener = error -> {
             loadingProgressBar.setVisibility(View.GONE);
             swipeRefreshLayout.setRefreshing(false);
@@ -280,6 +373,13 @@ public class CustomerDashboard extends AppCompatActivity {
             Toast.makeText(CustomerDashboard.this, errorMessage, Toast.LENGTH_SHORT).show();
             Log.e("CustomerDashboard", "Menu fetch failed", error);
         };
+
+        requestMenuArrayForRestaurant(restaurantId, this::applyMenuData, errorListener);
+    }
+
+    private void requestMenuArrayForRestaurant(int targetRestaurantId, Response.Listener<JSONArray> successListener, Response.ErrorListener errorListener) {
+        String menuUrl = MENU_BY_RESTAURANT_ENDPOINT + "?restaurant_id=" + targetRestaurantId;
+        String legacyMenuUrl = LEGACY_MENU_ENDPOINT + "?restaurant_id=" + targetRestaurantId;
 
         JsonArrayRequest legacyArrayRequest = new JsonArrayRequest(
                 Request.Method.GET,
@@ -319,7 +419,7 @@ public class CustomerDashboard extends AppCompatActivity {
                     if (menus == null) {
                         menus = new JSONArray();
                     }
-                    applyMenuData(menus);
+                    successListener.onResponse(menus);
                 },
                 error -> requestQueue.add(arrayRequest)
         );
@@ -335,22 +435,7 @@ public class CustomerDashboard extends AppCompatActivity {
                 continue;
             }
 
-            String name = item.optString("name", "Unnamed Item");
-            String description = item.optString("description", "");
-            double price = item.optDouble("price", 0.0);
-            String imageUrl = item.optString("image_url", "");
-
-            if (TextUtils.isEmpty(imageUrl)) {
-                imageUrl = item.optString("image", "");
-            }
-            if (TextUtils.isEmpty(imageUrl)) {
-                imageUrl = item.optString("image_path", "");
-            }
-
-            imageUrl = normalizeImageUrl(imageUrl);
-            boolean isAvailable = parseItemAvailability(item);
-
-            productList.add(new Product(name, description, price, imageUrl, isAvailable));
+            productList.add(parseProductFromJson(item, null, false));
         }
 
         loadingProgressBar.setVisibility(View.GONE);
@@ -363,6 +448,33 @@ public class CustomerDashboard extends AppCompatActivity {
         } else {
             emptyMessageTextView.setVisibility(View.GONE);
         }
+    }
+
+    private Product parseProductFromJson(JSONObject item, String restaurantName, boolean includeRestaurantLabel) {
+        String name = item.optString("name", "Unnamed Item");
+        String description = item.optString("description", "");
+        double price = item.optDouble("price", 0.0);
+        String imageUrl = item.optString("image_url", "");
+
+        if (TextUtils.isEmpty(imageUrl)) {
+            imageUrl = item.optString("image", "");
+        }
+        if (TextUtils.isEmpty(imageUrl)) {
+            imageUrl = item.optString("image_path", "");
+        }
+
+        imageUrl = normalizeImageUrl(imageUrl);
+        boolean isAvailable = parseItemAvailability(item);
+
+        if (includeRestaurantLabel && !TextUtils.isEmpty(restaurantName)) {
+            if (TextUtils.isEmpty(description)) {
+                description = "From " + restaurantName;
+            } else {
+                description = "From " + restaurantName + " - " + description;
+            }
+        }
+
+        return new Product(name, description, price, imageUrl, isAvailable);
     }
 
     private void showEmpty(String message) {
@@ -640,9 +752,11 @@ public class CustomerDashboard extends AppCompatActivity {
             holder.itemView.setBackgroundResource(isSelected ? R.drawable.button_border : R.drawable.view_border);
 
             holder.itemView.setOnClickListener(v -> {
-                if (selectedRestaurantPosition != position) {
-                    selectRestaurant(position, true);
+                if (selectedRestaurantPosition == position) {
+                    clearRestaurantSelection(true);
+                    return;
                 }
+                selectRestaurant(position, true);
             });
         }
 
