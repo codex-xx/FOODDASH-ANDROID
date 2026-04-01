@@ -2,17 +2,23 @@ package com.example.fooddash;
 
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.os.Handler;
+import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
 import android.os.Looper;
+import android.text.Editable;
 import android.text.TextUtils;
+import android.text.TextWatcher;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.inputmethod.EditorInfo;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
@@ -21,6 +27,7 @@ import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.widget.NestedScrollView;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -33,6 +40,7 @@ import com.android.volley.toolbox.JsonArrayRequest;
 import com.android.volley.toolbox.JsonObjectRequest;
 import com.android.volley.toolbox.Volley;
 import com.bumptech.glide.Glide;
+import com.google.android.material.card.MaterialCardView;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -49,13 +57,22 @@ public class CustomerDashboard extends AppCompatActivity {
     private static final int PREVIEW_RESTAURANT_LIMIT = 3;
     private static final int PREVIEW_ITEMS_PER_RESTAURANT = 2;
     private static final int PREVIEW_TOTAL_ITEMS_LIMIT = 8;
+    private static final long SEARCH_DEBOUNCE_MS = 400L;
+    private static final String SEARCH_REQUEST_TAG = "search_requests";
 
     private RecyclerView restaurantsRecyclerView;
     private RecyclerView productsRecyclerView;
+    private RecyclerView searchRestaurantsRecyclerView;
+    private RecyclerView searchMenuItemsRecyclerView;
     private SwipeRefreshLayout swipeRefreshLayout;
+    private NestedScrollView searchResultsScrollView;
     private ProgressBar loadingProgressBar;
     private TextView selectedRestaurantTextView;
     private TextView emptyMessageTextView;
+    private TextView searchRestaurantsSectionTitle;
+    private TextView searchMenuSectionTitle;
+    private TextView searchNoResultsTextView;
+    private EditText searchEditText;
     private Button btnPlaceOrder, btnLogout;
     private RadioGroup vehicleRadioGroup;
     private TextView totalPriceTextView;
@@ -63,17 +80,28 @@ public class CustomerDashboard extends AppCompatActivity {
     private ProductAdapter adapter;
     private List<Product> productList;
     private final List<Restaurant> restaurantList = new ArrayList<>();
+    private final List<SearchRestaurant> searchRestaurants = new ArrayList<>();
+    private final List<SearchMenuItem> searchMenuItems = new ArrayList<>();
     private RequestQueue requestQueue;
     private int restaurantId = -1;
     private int selectedRestaurantPosition = -1;
+    private int highlightedProductPosition = -1;
+    private String pendingHighlightItemName;
+    private boolean isSearchMode = false;
+    private String lastSearchQuery = "";
+    private Runnable searchRunnable;
+    private final Handler searchHandler = new Handler(Looper.getMainLooper());
     private final Handler pollingHandler = new Handler(Looper.getMainLooper());
     private static final long POLLING_INTERVAL_MS = 10000L;
+    private SearchRestaurantAdapter searchRestaurantAdapter;
+    private SearchMenuItemAdapter searchMenuItemAdapter;
 
     // Use the centralized URL from Constants
     private static final String API_URL = Constants.BASE_URL + "orders";
     private static final String ALL_RESTAURANTS_ENDPOINT = Constants.BASE_URL + "get_all_restaurants.php";
     private static final String MENU_BY_RESTAURANT_ENDPOINT = Constants.BASE_URL + "get_menus_by_restaurant.php";
     private static final String LEGACY_MENU_ENDPOINT = Constants.BASE_URL + "get_menus.php";
+    private static final String SEARCH_ENDPOINT = Constants.BASE_URL + "search.php";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -82,10 +110,17 @@ public class CustomerDashboard extends AppCompatActivity {
 
         restaurantsRecyclerView = findViewById(R.id.restaurantsRecyclerView);
         productsRecyclerView = findViewById(R.id.productsRecyclerView);
+        searchRestaurantsRecyclerView = findViewById(R.id.searchRestaurantsRecyclerView);
+        searchMenuItemsRecyclerView = findViewById(R.id.searchMenuItemsRecyclerView);
         swipeRefreshLayout = findViewById(R.id.swipeRefreshLayout);
+        searchResultsScrollView = findViewById(R.id.searchResultsScrollView);
         loadingProgressBar = findViewById(R.id.loadingProgressBar);
         selectedRestaurantTextView = findViewById(R.id.selectedRestaurantTextView);
         emptyMessageTextView = findViewById(R.id.emptyMessageTextView);
+        searchRestaurantsSectionTitle = findViewById(R.id.searchRestaurantsSectionTitle);
+        searchMenuSectionTitle = findViewById(R.id.searchMenuSectionTitle);
+        searchNoResultsTextView = findViewById(R.id.searchNoResultsTextView);
+        searchEditText = findViewById(R.id.searchEditText);
         btnPlaceOrder = findViewById(R.id.btnPlaceOrder);
         btnLogout = findViewById(R.id.btnLogout);
         vehicleRadioGroup = findViewById(R.id.vehicleRadioGroup);
@@ -93,6 +128,10 @@ public class CustomerDashboard extends AppCompatActivity {
 
         restaurantsRecyclerView.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
         productsRecyclerView.setLayoutManager(new GridLayoutManager(this, 2));
+        searchRestaurantsRecyclerView.setLayoutManager(new LinearLayoutManager(this));
+        searchMenuItemsRecyclerView.setLayoutManager(new LinearLayoutManager(this));
+        searchRestaurantsRecyclerView.setNestedScrollingEnabled(false);
+        searchMenuItemsRecyclerView.setNestedScrollingEnabled(false);
         requestQueue = Volley.newRequestQueue(this);
         restaurantId = getIntent().getIntExtra("restaurant_id", -1);
 
@@ -103,7 +142,22 @@ public class CustomerDashboard extends AppCompatActivity {
 
         adapter = new ProductAdapter(productList);
         productsRecyclerView.setAdapter(adapter);
-        swipeRefreshLayout.setOnRefreshListener(() -> fetchRestaurants(false));
+        searchRestaurantAdapter = new SearchRestaurantAdapter(searchRestaurants);
+        searchRestaurantsRecyclerView.setAdapter(searchRestaurantAdapter);
+
+        searchMenuItemAdapter = new SearchMenuItemAdapter(searchMenuItems);
+        searchMenuItemsRecyclerView.setAdapter(searchMenuItemAdapter);
+
+        setupSearchInput();
+
+        swipeRefreshLayout.setOnRefreshListener(() -> {
+            String query = searchEditText.getText().toString().trim();
+            if (query.isEmpty()) {
+                fetchRestaurants(false);
+            } else {
+                executeSearch(query);
+            }
+        });
         showEmpty("Loading restaurants...");
         selectedRestaurantTextView.setText("Mixed picks from partner restaurants");
 
@@ -130,13 +184,15 @@ public class CustomerDashboard extends AppCompatActivity {
     protected void onPause() {
         super.onPause();
         stopMenuPolling();
+        searchHandler.removeCallbacksAndMessages(null);
+        requestQueue.cancelAll(SEARCH_REQUEST_TAG);
     }
 
     private void startMenuPolling() {
         pollingHandler.postDelayed(new Runnable() {
             @Override
             public void run() {
-                if (restaurantId > 0) {
+                if (!isSearchMode && restaurantId > 0) {
                     fetchMenu(false);
                 }
                 pollingHandler.postDelayed(this, POLLING_INTERVAL_MS);
@@ -146,6 +202,312 @@ public class CustomerDashboard extends AppCompatActivity {
 
     private void stopMenuPolling() {
         pollingHandler.removeCallbacksAndMessages(null);
+    }
+
+    private void setupSearchInput() {
+        searchEditText.setOnEditorActionListener((v, actionId, event) -> {
+            if (actionId == EditorInfo.IME_ACTION_SEARCH || actionId == EditorInfo.IME_ACTION_DONE) {
+                String query = searchEditText.getText().toString().trim();
+                if (!query.isEmpty()) {
+                    executeSearch(query);
+                }
+                return true;
+            }
+            return false;
+        });
+
+        searchEditText.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {
+                scheduleSearch(s.toString().trim());
+            }
+        });
+    }
+
+    private void scheduleSearch(String query) {
+        searchHandler.removeCallbacksAndMessages(null);
+        if (query.isEmpty()) {
+            lastSearchQuery = "";
+            exitSearchMode();
+            return;
+        }
+
+        searchRunnable = () -> executeSearch(query);
+        searchHandler.postDelayed(searchRunnable, SEARCH_DEBOUNCE_MS);
+    }
+
+    private void executeSearch(String query) {
+        if (query.isEmpty()) {
+            exitSearchMode();
+            return;
+        }
+
+        lastSearchQuery = query;
+        enterSearchMode();
+        loadingProgressBar.setVisibility(View.VISIBLE);
+        searchNoResultsTextView.setVisibility(View.GONE);
+        requestQueue.cancelAll(SEARCH_REQUEST_TAG);
+
+        String searchUrl = SEARCH_ENDPOINT + "?query=" + Uri.encode(query);
+        JsonObjectRequest searchRequest = new JsonObjectRequest(
+                Request.Method.GET,
+                searchUrl,
+                null,
+                response -> {
+                    if (!query.equals(lastSearchQuery)) {
+                        return;
+                    }
+
+                    JSONArray restaurantsArray = findArray(response,
+                            "restaurants",
+                            "restaurant_results",
+                            "restaurant",
+                            "data.restaurants",
+                            "data.restaurant_results");
+                    JSONArray menuItemsArray = findArray(response,
+                            "menu_items",
+                            "menuItems",
+                            "menus",
+                            "items",
+                            "products",
+                            "data.menu_items",
+                            "data.items",
+                            "data.products");
+
+                    applySearchResults(restaurantsArray, menuItemsArray);
+                },
+                error -> {
+                    if (!query.equals(lastSearchQuery)) {
+                        return;
+                    }
+
+                    loadingProgressBar.setVisibility(View.GONE);
+                    swipeRefreshLayout.setRefreshing(false);
+                    searchRestaurants.clear();
+                    searchMenuItems.clear();
+                    searchRestaurantAdapter.notifyDataSetChanged();
+                    searchMenuItemAdapter.notifyDataSetChanged();
+                    updateSearchSectionsVisibility();
+                    searchNoResultsTextView.setVisibility(View.VISIBLE);
+                    Toast.makeText(CustomerDashboard.this, "Search failed", Toast.LENGTH_SHORT).show();
+                    Log.e("CustomerDashboard", "Search request failed", error);
+                }
+        );
+
+        searchRequest.setTag(SEARCH_REQUEST_TAG);
+        requestQueue.add(searchRequest);
+    }
+
+    private JSONArray findArray(JSONObject source, String... keyPaths) {
+        if (source == null || keyPaths == null) {
+            return new JSONArray();
+        }
+
+        for (String keyPath : keyPaths) {
+            if (TextUtils.isEmpty(keyPath)) {
+                continue;
+            }
+
+            String[] keys = keyPath.split("\\.");
+            JSONObject current = source;
+            for (int i = 0; i < keys.length - 1; i++) {
+                current = current.optJSONObject(keys[i]);
+                if (current == null) {
+                    break;
+                }
+            }
+
+            if (current == null) {
+                continue;
+            }
+
+            JSONArray array = current.optJSONArray(keys[keys.length - 1]);
+            if (array != null) {
+                return array;
+            }
+        }
+
+        return new JSONArray();
+    }
+
+    private void applySearchResults(JSONArray restaurantsArray, JSONArray menuItemsArray) {
+        searchRestaurants.clear();
+        searchMenuItems.clear();
+
+        for (int i = 0; i < restaurantsArray.length(); i++) {
+            JSONObject item = restaurantsArray.optJSONObject(i);
+            if (item == null) {
+                continue;
+            }
+
+            int id = item.optInt("id", item.optInt("restaurant_id", -1));
+            if (id <= 0) {
+                continue;
+            }
+
+            String name = item.optString("name", item.optString("restaurant_name", "Restaurant " + id));
+            String imageUrl = item.optString("image_url",
+                    item.optString("image",
+                            item.optString("image_path",
+                                    item.optString("logo", item.optString("restaurant_image", "")))));
+            searchRestaurants.add(new SearchRestaurant(id, name, normalizeImageUrl(imageUrl)));
+        }
+
+        for (int i = 0; i < menuItemsArray.length(); i++) {
+            JSONObject item = menuItemsArray.optJSONObject(i);
+            if (item == null) {
+                continue;
+            }
+
+            int menuId = item.optInt("id", item.optInt("menu_id", -1));
+            int itemRestaurantId = item.optInt("restaurant_id", item.optInt("restaurantId", -1));
+            String itemName = item.optString("name", item.optString("food_name", item.optString("item_name", "Menu Item")));
+
+            JSONObject nestedRestaurant = item.optJSONObject("restaurant");
+            String itemRestaurantName = item.optString("restaurant_name", item.optString("restaurant", ""));
+            if (TextUtils.isEmpty(itemRestaurantName) && nestedRestaurant != null) {
+                itemRestaurantName = nestedRestaurant.optString("name", nestedRestaurant.optString("restaurant_name", ""));
+                if (itemRestaurantId <= 0) {
+                    itemRestaurantId = nestedRestaurant.optInt("id", nestedRestaurant.optInt("restaurant_id", -1));
+                }
+            }
+
+            double price = item.optDouble("price", item.optDouble("menu_price", 0.0));
+            String imageUrl = item.optString("image_url", item.optString("image", item.optString("image_path", "")));
+
+            searchMenuItems.add(new SearchMenuItem(
+                    menuId,
+                    itemName,
+                    itemRestaurantId,
+                    itemRestaurantName,
+                    price,
+                    normalizeImageUrl(imageUrl)
+            ));
+        }
+
+        loadingProgressBar.setVisibility(View.GONE);
+        swipeRefreshLayout.setRefreshing(false);
+        searchRestaurantAdapter.notifyDataSetChanged();
+        searchMenuItemAdapter.notifyDataSetChanged();
+        updateSearchSectionsVisibility();
+    }
+
+    private void updateSearchSectionsVisibility() {
+        boolean hasRestaurants = !searchRestaurants.isEmpty();
+        boolean hasMenuItems = !searchMenuItems.isEmpty();
+
+        searchRestaurantsSectionTitle.setVisibility(hasRestaurants ? View.VISIBLE : View.GONE);
+        searchRestaurantsRecyclerView.setVisibility(hasRestaurants ? View.VISIBLE : View.GONE);
+        searchMenuSectionTitle.setVisibility(hasMenuItems ? View.VISIBLE : View.GONE);
+        searchMenuItemsRecyclerView.setVisibility(hasMenuItems ? View.VISIBLE : View.GONE);
+        searchNoResultsTextView.setVisibility((hasRestaurants || hasMenuItems) ? View.GONE : View.VISIBLE);
+    }
+
+    private void enterSearchMode() {
+        if (isSearchMode) {
+            return;
+        }
+
+        isSearchMode = true;
+        productsRecyclerView.setVisibility(View.GONE);
+        searchResultsScrollView.setVisibility(View.VISIBLE);
+        emptyMessageTextView.setVisibility(View.GONE);
+    }
+
+    private void exitSearchMode() {
+        isSearchMode = false;
+        requestQueue.cancelAll(SEARCH_REQUEST_TAG);
+        loadingProgressBar.setVisibility(View.GONE);
+        searchResultsScrollView.setVisibility(View.GONE);
+        productsRecyclerView.setVisibility(View.VISIBLE);
+        searchRestaurants.clear();
+        searchMenuItems.clear();
+        searchRestaurantAdapter.notifyDataSetChanged();
+        searchMenuItemAdapter.notifyDataSetChanged();
+        searchRestaurantsSectionTitle.setVisibility(View.GONE);
+        searchMenuSectionTitle.setVisibility(View.GONE);
+        searchNoResultsTextView.setVisibility(View.GONE);
+
+        if (restaurantId > 0) {
+            fetchMenu(false);
+        } else {
+            fetchMixedMenuPreview(false);
+        }
+    }
+
+    private void navigateToRestaurantFromSearch(int targetRestaurantId) {
+        if (targetRestaurantId <= 0) {
+            Toast.makeText(this, "Restaurant is unavailable", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        int targetPosition = -1;
+        for (int i = 0; i < restaurantList.size(); i++) {
+            if (restaurantList.get(i).getId() == targetRestaurantId) {
+                targetPosition = i;
+                break;
+            }
+        }
+
+        if (targetPosition >= 0) {
+            selectRestaurant(targetPosition, true);
+            restaurantsRecyclerView.smoothScrollToPosition(targetPosition);
+            return;
+        }
+
+        Intent intent = new Intent(this, CustomerDashboard.class);
+        intent.putExtra("restaurant_id", targetRestaurantId);
+        startActivity(intent);
+    }
+
+    private void navigateToMenuItemFromSearch(SearchMenuItem item) {
+        if (item.restaurantId <= 0) {
+            Toast.makeText(this, "Restaurant for this item is unavailable", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        pendingHighlightItemName = item.name;
+        navigateToRestaurantFromSearch(item.restaurantId);
+    }
+
+    private void highlightPendingMenuItemIfNeeded() {
+        if (TextUtils.isEmpty(pendingHighlightItemName)) {
+            return;
+        }
+
+        int matchPosition = -1;
+        for (int i = 0; i < productList.size(); i++) {
+            if (pendingHighlightItemName.equalsIgnoreCase(productList.get(i).getName())) {
+                matchPosition = i;
+                break;
+            }
+        }
+
+        if (matchPosition < 0) {
+            pendingHighlightItemName = null;
+            return;
+        }
+
+        highlightedProductPosition = matchPosition;
+        adapter.notifyItemChanged(matchPosition);
+        productsRecyclerView.smoothScrollToPosition(matchPosition);
+        final int highlightedPosition = matchPosition;
+        pendingHighlightItemName = null;
+
+        productsRecyclerView.postDelayed(() -> {
+            if (highlightedProductPosition == highlightedPosition) {
+                highlightedProductPosition = -1;
+                adapter.notifyItemChanged(highlightedPosition);
+            }
+        }, 1800L);
     }
 
     private void fetchRestaurants(boolean showBlockingLoader) {
@@ -442,6 +804,7 @@ public class CustomerDashboard extends AppCompatActivity {
         swipeRefreshLayout.setRefreshing(false);
         adapter.notifyDataSetChanged();
         calculateTotalPrice();
+        highlightPendingMenuItemIfNeeded();
 
         if (productList.isEmpty()) {
             showEmpty("No menu available for this restaurant.");
@@ -775,6 +1138,146 @@ public class CustomerDashboard extends AppCompatActivity {
         }
     }
 
+    private static class SearchRestaurant {
+        int id;
+        String name;
+        String imageUrl;
+
+        SearchRestaurant(int id, String name, String imageUrl) {
+            this.id = id;
+            this.name = name;
+            this.imageUrl = imageUrl;
+        }
+    }
+
+    private static class SearchMenuItem {
+        int id;
+        String name;
+        int restaurantId;
+        String restaurantName;
+        double price;
+        String imageUrl;
+
+        SearchMenuItem(int id, String name, int restaurantId, String restaurantName, double price, String imageUrl) {
+            this.id = id;
+            this.name = name;
+            this.restaurantId = restaurantId;
+            this.restaurantName = restaurantName;
+            this.price = price;
+            this.imageUrl = imageUrl;
+        }
+    }
+
+    private class SearchRestaurantAdapter extends RecyclerView.Adapter<SearchRestaurantAdapter.ViewHolder> {
+
+        private final List<SearchRestaurant> restaurants;
+
+        SearchRestaurantAdapter(List<SearchRestaurant> restaurants) {
+            this.restaurants = restaurants;
+        }
+
+        @NonNull
+        @Override
+        public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+            View view = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_search_restaurant, parent, false);
+            return new ViewHolder(view);
+        }
+
+        @Override
+        public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
+            SearchRestaurant restaurant = restaurants.get(position);
+            holder.nameTextView.setText(restaurant.name);
+
+            Glide.with(holder.itemView.getContext())
+                    .load(restaurant.imageUrl)
+                    .placeholder(R.mipmap.ic_launcher)
+                    .error(R.mipmap.ic_launcher)
+                    .into(holder.imageView);
+
+            holder.itemView.setOnClickListener(v -> {
+                searchEditText.setText("");
+                searchEditText.clearFocus();
+                navigateToRestaurantFromSearch(restaurant.id);
+            });
+        }
+
+        @Override
+        public int getItemCount() {
+            return restaurants.size();
+        }
+
+        class ViewHolder extends RecyclerView.ViewHolder {
+            ImageView imageView;
+            TextView nameTextView;
+
+            ViewHolder(@NonNull View itemView) {
+                super(itemView);
+                imageView = itemView.findViewById(R.id.searchRestaurantImageView);
+                nameTextView = itemView.findViewById(R.id.searchRestaurantNameTextView);
+            }
+        }
+    }
+
+    private class SearchMenuItemAdapter extends RecyclerView.Adapter<SearchMenuItemAdapter.ViewHolder> {
+
+        private final List<SearchMenuItem> menuItems;
+
+        SearchMenuItemAdapter(List<SearchMenuItem> menuItems) {
+            this.menuItems = menuItems;
+        }
+
+        @NonNull
+        @Override
+        public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+            View view = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_search_menu, parent, false);
+            return new ViewHolder(view);
+        }
+
+        @Override
+        public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
+            SearchMenuItem item = menuItems.get(position);
+            holder.nameTextView.setText(item.name);
+
+            String sourceRestaurant = TextUtils.isEmpty(item.restaurantName)
+                    ? "Partner restaurant"
+                    : item.restaurantName;
+            holder.restaurantTextView.setText(sourceRestaurant);
+            holder.priceTextView.setText(String.format(Locale.getDefault(), "₱%.2f", item.price));
+
+            Glide.with(holder.itemView.getContext())
+                    .load(item.imageUrl)
+                    .placeholder(R.mipmap.ic_launcher)
+                    .error(R.mipmap.ic_launcher)
+                    .into(holder.imageView);
+
+            holder.itemView.setOnClickListener(v -> {
+                searchEditText.setText("");
+                searchEditText.clearFocus();
+                navigateToMenuItemFromSearch(item);
+            });
+        }
+
+        @Override
+        public int getItemCount() {
+            return menuItems.size();
+        }
+
+        class ViewHolder extends RecyclerView.ViewHolder {
+            ImageView imageView;
+            TextView nameTextView;
+            TextView restaurantTextView;
+            TextView priceTextView;
+
+            ViewHolder(@NonNull View itemView) {
+                super(itemView);
+                imageView = itemView.findViewById(R.id.searchMenuImageView);
+                nameTextView = itemView.findViewById(R.id.searchMenuNameTextView);
+                restaurantTextView = itemView.findViewById(R.id.searchMenuRestaurantTextView);
+                priceTextView = itemView.findViewById(R.id.searchMenuPriceTextView);
+            }
+        }
+    }
+
     // RecyclerView Adapter
     private class ProductAdapter extends RecyclerView.Adapter<ProductAdapter.ViewHolder> {
 
@@ -794,11 +1297,15 @@ public class CustomerDashboard extends AppCompatActivity {
         @Override
         public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
             Product product = products.get(position);
+            boolean isHighlighted = position == highlightedProductPosition;
             holder.productNameTextView.setText(product.getName());
             holder.productDescriptionTextView.setText(product.getDescription());
             holder.productPriceTextView.setText(String.format(Locale.getDefault(), "₱%.2f", product.getPrice()));
             holder.quantityTextView.setText(String.valueOf(product.getQuantity()));
             boolean unavailable = !product.isAvailable();
+
+            holder.productCardView.setStrokeWidth(isHighlighted ? 2 : 0);
+            holder.productCardView.setStrokeColor(isHighlighted ? 0xFFEB5E28 : 0x00000000);
 
             if (unavailable && product.getQuantity() != 0) {
                 product.setQuantity(0);
@@ -860,12 +1367,14 @@ public class CustomerDashboard extends AppCompatActivity {
         }
 
         public class ViewHolder extends RecyclerView.ViewHolder {
+            MaterialCardView productCardView;
             ImageView productImageView;
             TextView productNameTextView, productDescriptionTextView, productPriceTextView, quantityTextView, unavailableTextView;
             ImageButton plusButton, minusButton;
 
             public ViewHolder(@NonNull View itemView) {
                 super(itemView);
+                productCardView = (MaterialCardView) itemView;
                 productImageView = itemView.findViewById(R.id.productImageView);
                 productNameTextView = itemView.findViewById(R.id.productNameTextView);
                 productDescriptionTextView = itemView.findViewById(R.id.productDescriptionTextView);
