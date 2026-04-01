@@ -138,7 +138,7 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:backgroundTint="@color/product_price"
-                    android:text="Review Cart"
+                    android:text="Place Order"
                     android:textColor="@color/white" />
 
                 <Button
