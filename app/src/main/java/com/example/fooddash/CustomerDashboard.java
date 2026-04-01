@@ -45,48 +45,62 @@ import java.util.Locale;
 
 public class CustomerDashboard extends AppCompatActivity {
 
+    private RecyclerView restaurantsRecyclerView;
     private RecyclerView productsRecyclerView;
     private SwipeRefreshLayout swipeRefreshLayout;
     private ProgressBar loadingProgressBar;
+    private TextView selectedRestaurantTextView;
     private TextView emptyMessageTextView;
     private Button btnPlaceOrder, btnLogout;
     private RadioGroup vehicleRadioGroup;
     private TextView totalPriceTextView;
+    private RestaurantAdapter restaurantAdapter;
     private ProductAdapter adapter;
     private List<Product> productList;
+    private final List<Restaurant> restaurantList = new ArrayList<>();
     private RequestQueue requestQueue;
-    private int restaurantId;
+    private int restaurantId = -1;
+    private int selectedRestaurantPosition = -1;
     private final Handler pollingHandler = new Handler(Looper.getMainLooper());
     private static final long POLLING_INTERVAL_MS = 10000L;
 
     // Use the centralized URL from Constants
     private static final String API_URL = Constants.BASE_URL + "orders";
-    private static final String MENU_ENDPOINT = Constants.BASE_URL + "get_menus.php";
+    private static final String ALL_RESTAURANTS_ENDPOINT = Constants.BASE_URL + "get_all_restaurants.php";
+    private static final String MENU_BY_RESTAURANT_ENDPOINT = Constants.BASE_URL + "get_menus_by_restaurant.php";
+    private static final String LEGACY_MENU_ENDPOINT = Constants.BASE_URL + "get_menus.php";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_customer_dashboard);
 
+        restaurantsRecyclerView = findViewById(R.id.restaurantsRecyclerView);
         productsRecyclerView = findViewById(R.id.productsRecyclerView);
         swipeRefreshLayout = findViewById(R.id.swipeRefreshLayout);
         loadingProgressBar = findViewById(R.id.loadingProgressBar);
+        selectedRestaurantTextView = findViewById(R.id.selectedRestaurantTextView);
         emptyMessageTextView = findViewById(R.id.emptyMessageTextView);
         btnPlaceOrder = findViewById(R.id.btnPlaceOrder);
         btnLogout = findViewById(R.id.btnLogout);
         vehicleRadioGroup = findViewById(R.id.vehicleRadioGroup);
         totalPriceTextView = findViewById(R.id.totalPriceTextView);
 
+        restaurantsRecyclerView.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
         productsRecyclerView.setLayoutManager(new LinearLayoutManager(this));
         requestQueue = Volley.newRequestQueue(this);
-        restaurantId = getIntent().getIntExtra("restaurant_id", 1);
+        restaurantId = getIntent().getIntExtra("restaurant_id", -1);
 
         productList = new ArrayList<>();
 
+        restaurantAdapter = new RestaurantAdapter(restaurantList);
+        restaurantsRecyclerView.setAdapter(restaurantAdapter);
+
         adapter = new ProductAdapter(productList);
         productsRecyclerView.setAdapter(adapter);
-        swipeRefreshLayout.setOnRefreshListener(() -> fetchMenu(false));
-        showEmpty("Loading menu...");
+        swipeRefreshLayout.setOnRefreshListener(() -> fetchRestaurants(false));
+        showEmpty("Loading restaurants...");
+        selectedRestaurantTextView.setText("Select a restaurant");
 
         btnPlaceOrder.setOnClickListener(v -> placeOrder());
 
@@ -103,7 +117,7 @@ public class CustomerDashboard extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        fetchMenu(true);
+        fetchRestaurants(true);
         startMenuPolling();
     }
 
@@ -117,7 +131,9 @@ public class CustomerDashboard extends AppCompatActivity {
         pollingHandler.postDelayed(new Runnable() {
             @Override
             public void run() {
-                fetchMenu(false);
+                if (restaurantId > 0) {
+                    fetchMenu(false);
+                }
                 pollingHandler.postDelayed(this, POLLING_INTERVAL_MS);
             }
         }, POLLING_INTERVAL_MS);
@@ -127,13 +143,128 @@ public class CustomerDashboard extends AppCompatActivity {
         pollingHandler.removeCallbacksAndMessages(null);
     }
 
-    private void fetchMenu(boolean showBlockingLoader) {
+    private void fetchRestaurants(boolean showBlockingLoader) {
         if (showBlockingLoader) {
             loadingProgressBar.setVisibility(View.VISIBLE);
             emptyMessageTextView.setVisibility(View.GONE);
         }
 
-        String menuUrl = MENU_ENDPOINT + "?restaurant_id=" + restaurantId;
+        JsonArrayRequest arrayRequest = new JsonArrayRequest(
+                Request.Method.GET,
+                ALL_RESTAURANTS_ENDPOINT,
+                null,
+                this::applyRestaurantData,
+                error -> {
+                    loadingProgressBar.setVisibility(View.GONE);
+                    swipeRefreshLayout.setRefreshing(false);
+                    if (restaurantList.isEmpty()) {
+                        showEmpty("No partner restaurants available.");
+                    }
+                    Toast.makeText(CustomerDashboard.this, "Failed to fetch restaurants", Toast.LENGTH_SHORT).show();
+                    Log.e("CustomerDashboard", "Restaurants fetch failed", error);
+                }
+        );
+
+        JsonObjectRequest objectRequest = new JsonObjectRequest(
+                Request.Method.GET,
+                ALL_RESTAURANTS_ENDPOINT,
+                null,
+                response -> {
+                    Log.d("CustomerDashboard", "Restaurants response: " + response);
+                    JSONArray restaurants = response.optJSONArray("restaurants");
+                    if (restaurants == null) {
+                        restaurants = response.optJSONArray("data");
+                    }
+                    if (restaurants == null) {
+                        restaurants = response.optJSONArray("items");
+                    }
+                    if (restaurants == null) {
+                        restaurants = new JSONArray();
+                    }
+                    applyRestaurantData(restaurants);
+                },
+                error -> requestQueue.add(arrayRequest)
+        );
+
+        requestQueue.add(objectRequest);
+    }
+
+    private void applyRestaurantData(JSONArray restaurants) {
+        int previousRestaurantId = restaurantId;
+        restaurantList.clear();
+
+        for (int i = 0; i < restaurants.length(); i++) {
+            JSONObject restaurant = restaurants.optJSONObject(i);
+            if (restaurant == null) {
+                continue;
+            }
+
+            int id = restaurant.optInt("id", restaurant.optInt("restaurant_id", -1));
+            if (id <= 0) {
+                continue;
+            }
+
+            String name = restaurant.optString("name", restaurant.optString("restaurant_name", "Restaurant " + id));
+            restaurantList.add(new Restaurant(id, name));
+        }
+
+        loadingProgressBar.setVisibility(View.GONE);
+        swipeRefreshLayout.setRefreshing(false);
+        restaurantAdapter.notifyDataSetChanged();
+
+        if (restaurantList.isEmpty()) {
+            restaurantId = -1;
+            selectedRestaurantPosition = -1;
+            productList.clear();
+            adapter.notifyDataSetChanged();
+            calculateTotalPrice();
+            selectedRestaurantTextView.setText("Select a restaurant");
+            showEmpty("No partner restaurants available.");
+            return;
+        }
+
+        int selectedPosition = 0;
+        for (int i = 0; i < restaurantList.size(); i++) {
+            if (restaurantList.get(i).getId() == previousRestaurantId) {
+                selectedPosition = i;
+                break;
+            }
+        }
+
+        selectRestaurant(selectedPosition, true);
+    }
+
+    private void selectRestaurant(int position, boolean fetchMenuNow) {
+        if (position < 0 || position >= restaurantList.size()) {
+            return;
+        }
+
+        selectedRestaurantPosition = position;
+        Restaurant selectedRestaurant = restaurantList.get(position);
+        restaurantId = selectedRestaurant.getId();
+        selectedRestaurantTextView.setText("Menu: " + selectedRestaurant.getName());
+        restaurantAdapter.notifyDataSetChanged();
+
+        if (fetchMenuNow) {
+            fetchMenu(true);
+        }
+    }
+
+    private void fetchMenu(boolean showBlockingLoader) {
+        if (restaurantId <= 0) {
+            loadingProgressBar.setVisibility(View.GONE);
+            swipeRefreshLayout.setRefreshing(false);
+            showEmpty("Select a restaurant to view menu.");
+            return;
+        }
+
+        if (showBlockingLoader) {
+            loadingProgressBar.setVisibility(View.VISIBLE);
+            emptyMessageTextView.setVisibility(View.GONE);
+        }
+
+        String menuUrl = MENU_BY_RESTAURANT_ENDPOINT + "?restaurant_id=" + restaurantId;
+        String legacyMenuUrl = LEGACY_MENU_ENDPOINT + "?restaurant_id=" + restaurantId;
 
         Response.Listener<JSONArray> successListener = this::applyMenuData;
         Response.ErrorListener errorListener = error -> {
@@ -150,12 +281,20 @@ public class CustomerDashboard extends AppCompatActivity {
             Log.e("CustomerDashboard", "Menu fetch failed", error);
         };
 
+        JsonArrayRequest legacyArrayRequest = new JsonArrayRequest(
+                Request.Method.GET,
+                legacyMenuUrl,
+                null,
+                successListener,
+                errorListener
+        );
+
         JsonArrayRequest arrayRequest = new JsonArrayRequest(
                 Request.Method.GET,
                 menuUrl,
                 null,
                 successListener,
-                errorListener
+                error -> requestQueue.add(legacyArrayRequest)
         );
 
         JsonObjectRequest objectRequest = new JsonObjectRequest(
@@ -163,12 +302,19 @@ public class CustomerDashboard extends AppCompatActivity {
                 menuUrl,
                 null,
                 response -> {
+                    Log.d("CustomerDashboard", "Menu response: " + response);
                     JSONArray menus = response.optJSONArray("menus");
                     if (menus == null) {
                         menus = response.optJSONArray("data");
                     }
                     if (menus == null) {
                         menus = response.optJSONArray("items");
+                    }
+                    if (menus == null) {
+                        JSONObject restaurant = response.optJSONObject("restaurant");
+                        if (restaurant != null) {
+                            menus = restaurant.optJSONArray("menus");
+                        }
                     }
                     if (menus == null) {
                         menus = new JSONArray();
@@ -323,6 +469,11 @@ public class CustomerDashboard extends AppCompatActivity {
     }
 
     private void placeOrder() {
+        if (restaurantId <= 0) {
+            Toast.makeText(this, "Please select a restaurant first", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
         List<Product> selectedProducts = adapter.getSelectedProducts();
         if (selectedProducts.isEmpty()) {
             Toast.makeText(this, "Please select at least one product", Toast.LENGTH_SHORT).show();
@@ -399,6 +550,25 @@ public class CustomerDashboard extends AppCompatActivity {
 
 
     // Product data model
+    private static class Restaurant {
+        int id;
+        String name;
+
+        public Restaurant(int id, String name) {
+            this.id = id;
+            this.name = name;
+        }
+
+        public int getId() {
+            return id;
+        }
+
+        public String getName() {
+            return name;
+        }
+    }
+
+    // Product data model
     private static class Product {
         String name;
         String description;
@@ -441,6 +611,53 @@ public class CustomerDashboard extends AppCompatActivity {
 
         public void setQuantity(int quantity) {
             this.quantity = quantity;
+        }
+    }
+
+    // RecyclerView Adapter
+    private class RestaurantAdapter extends RecyclerView.Adapter<RestaurantAdapter.RestaurantViewHolder> {
+
+        private final List<Restaurant> restaurants;
+
+        RestaurantAdapter(List<Restaurant> restaurants) {
+            this.restaurants = restaurants;
+        }
+
+        @NonNull
+        @Override
+        public RestaurantViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+            View view = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_restaurant, parent, false);
+            return new RestaurantViewHolder(view);
+        }
+
+        @Override
+        public void onBindViewHolder(@NonNull RestaurantViewHolder holder, int position) {
+            Restaurant restaurant = restaurants.get(position);
+            boolean isSelected = position == selectedRestaurantPosition;
+
+            holder.restaurantNameTextView.setText(restaurant.getName());
+            holder.itemView.setAlpha(isSelected ? 1.0f : 0.8f);
+            holder.itemView.setBackgroundResource(isSelected ? R.drawable.button_border : R.drawable.view_border);
+
+            holder.itemView.setOnClickListener(v -> {
+                if (selectedRestaurantPosition != position) {
+                    selectRestaurant(position, true);
+                }
+            });
+        }
+
+        @Override
+        public int getItemCount() {
+            return restaurants.size();
+        }
+
+        class RestaurantViewHolder extends RecyclerView.ViewHolder {
+            TextView restaurantNameTextView;
+
+            RestaurantViewHolder(@NonNull View itemView) {
+                super(itemView);
+                restaurantNameTextView = itemView.findViewById(R.id.restaurantNameTextView);
+            }
         }
     }
 
