@@ -49,8 +49,10 @@ import java.io.DataOutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 public class CustomerDashboard extends AppCompatActivity {
 
@@ -160,6 +162,7 @@ public class CustomerDashboard extends AppCompatActivity {
         });
         showEmpty("Loading restaurants...");
         selectedRestaurantTextView.setText("Mixed picks from partner restaurants");
+        updateOrderControlsState();
 
         btnPlaceOrder.setOnClickListener(v -> placeOrder());
 
@@ -585,6 +588,7 @@ public class CustomerDashboard extends AppCompatActivity {
             productList.clear();
             adapter.notifyDataSetChanged();
             calculateTotalPrice();
+            updateOrderControlsState();
             selectedRestaurantTextView.setText("Mixed picks from partner restaurants");
             showEmpty("No partner restaurants available.");
             return;
@@ -618,6 +622,7 @@ public class CustomerDashboard extends AppCompatActivity {
         restaurantId = selectedRestaurant.getId();
         selectedRestaurantTextView.setText("Menu: " + selectedRestaurant.getName());
         restaurantAdapter.notifyDataSetChanged();
+        updateOrderControlsState();
 
         if (fetchMenuNow) {
             fetchMenu(true);
@@ -629,10 +634,28 @@ public class CustomerDashboard extends AppCompatActivity {
         selectedRestaurantPosition = -1;
         selectedRestaurantTextView.setText("Mixed picks from partner restaurants");
         restaurantAdapter.notifyDataSetChanged();
+        updateOrderControlsState();
 
         if (fetchMenuNow) {
             fetchMixedMenuPreview(true);
         }
+    }
+
+    private boolean isHomepageMode() {
+        return restaurantId <= 0;
+    }
+
+    private void updateOrderControlsState() {
+        boolean canOrder = !isHomepageMode();
+        btnPlaceOrder.setVisibility(canOrder ? View.VISIBLE : View.GONE);
+        vehicleRadioGroup.setVisibility(canOrder ? View.VISIBLE : View.GONE);
+        totalPriceTextView.setVisibility(canOrder ? View.VISIBLE : View.GONE);
+
+        if (!canOrder) {
+            calculateTotalPrice();
+        }
+
+        adapter.notifyDataSetChanged();
     }
 
     private void fetchMixedMenuPreview(boolean showBlockingLoader) {
@@ -684,6 +707,7 @@ public class CustomerDashboard extends AppCompatActivity {
         swipeRefreshLayout.setRefreshing(false);
         adapter.notifyDataSetChanged();
         calculateTotalPrice();
+        updateOrderControlsState();
 
         if (productList.isEmpty()) {
             showEmpty("No menu available right now.");
@@ -790,6 +814,11 @@ public class CustomerDashboard extends AppCompatActivity {
     }
 
     private void applyMenuData(JSONArray menus) {
+        Map<String, Integer> existingQuantities = new HashMap<>();
+        for (Product existingProduct : productList) {
+            existingQuantities.put(buildProductKey(existingProduct.getId(), existingProduct.getName()), existingProduct.getQuantity());
+        }
+
         productList.clear();
         for (int i = 0; i < menus.length(); i++) {
             JSONObject item = menus.optJSONObject(i);
@@ -797,13 +826,19 @@ public class CustomerDashboard extends AppCompatActivity {
                 continue;
             }
 
-            productList.add(parseProductFromJson(item, null, false));
+            Product product = parseProductFromJson(item, null, false);
+            Integer previousQuantity = existingQuantities.get(buildProductKey(product.getId(), product.getName()));
+            if (previousQuantity != null && previousQuantity > 0) {
+                product.setQuantity(previousQuantity);
+            }
+            productList.add(product);
         }
 
         loadingProgressBar.setVisibility(View.GONE);
         swipeRefreshLayout.setRefreshing(false);
         adapter.notifyDataSetChanged();
         calculateTotalPrice();
+        updateOrderControlsState();
         highlightPendingMenuItemIfNeeded();
 
         if (productList.isEmpty()) {
@@ -814,6 +849,7 @@ public class CustomerDashboard extends AppCompatActivity {
     }
 
     private Product parseProductFromJson(JSONObject item, String restaurantName, boolean includeRestaurantLabel) {
+        int id = item.optInt("id", item.optInt("menu_id", -1));
         String name = item.optString("name", "Unnamed Item");
         String description = item.optString("description", "");
         double price = item.optDouble("price", 0.0);
@@ -837,7 +873,14 @@ public class CustomerDashboard extends AppCompatActivity {
             }
         }
 
-        return new Product(name, description, price, imageUrl, isAvailable);
+        return new Product(id, name, description, price, imageUrl, isAvailable);
+    }
+
+    private String buildProductKey(int productId, String productName) {
+        if (productId > 0) {
+            return "id:" + productId;
+        }
+        return "name:" + (productName == null ? "" : productName.trim().toLowerCase(Locale.ROOT));
     }
 
     private void showEmpty(String message) {
@@ -1045,6 +1088,7 @@ public class CustomerDashboard extends AppCompatActivity {
 
     // Product data model
     private static class Product {
+        int id;
         String name;
         String description;
         double price;
@@ -1052,12 +1096,17 @@ public class CustomerDashboard extends AppCompatActivity {
         boolean isAvailable;
         int quantity = 0;
 
-        public Product(String name, String description, double price, String imageUrl, boolean isAvailable) {
+        public Product(int id, String name, String description, double price, String imageUrl, boolean isAvailable) {
+            this.id = id;
             this.name = name;
             this.description = description;
             this.price = price;
             this.imageUrl = imageUrl;
             this.isAvailable = isAvailable;
+        }
+
+        public int getId() {
+            return id;
         }
 
         public String getName() {
@@ -1313,16 +1362,19 @@ public class CustomerDashboard extends AppCompatActivity {
                 calculateTotalPrice();
             }
 
+            boolean canAdjustQuantity = !isHomepageMode() && !unavailable;
+
             holder.unavailableTextView.setVisibility(unavailable ? View.VISIBLE : View.GONE);
-            holder.plusButton.setEnabled(!unavailable);
-            holder.minusButton.setEnabled(!unavailable);
-            holder.plusButton.setClickable(!unavailable);
-            holder.minusButton.setClickable(!unavailable);
+            holder.plusButton.setEnabled(canAdjustQuantity);
+            holder.minusButton.setEnabled(canAdjustQuantity);
+            holder.plusButton.setClickable(canAdjustQuantity);
+            holder.minusButton.setClickable(canAdjustQuantity);
+            holder.quantityControlsLayout.setVisibility(isHomepageMode() ? View.GONE : View.VISIBLE);
             holder.itemView.setEnabled(!unavailable);
             holder.itemView.setClickable(false);
             holder.itemView.setAlpha(unavailable ? 0.65f : 1.0f);
-            holder.plusButton.setAlpha(unavailable ? 0.35f : 1.0f);
-            holder.minusButton.setAlpha(unavailable ? 0.35f : 1.0f);
+            holder.plusButton.setAlpha(canAdjustQuantity ? 1.0f : 0.35f);
+            holder.minusButton.setAlpha(canAdjustQuantity ? 1.0f : 0.35f);
 
             Glide.with(holder.itemView.getContext())
                     .load(product.getImageUrl())
@@ -1331,7 +1383,7 @@ public class CustomerDashboard extends AppCompatActivity {
                     .into(holder.productImageView);
 
             holder.plusButton.setOnClickListener(v -> {
-                if (!product.isAvailable()) {
+                if (!product.isAvailable() || isHomepageMode()) {
                     return;
                 }
                 product.setQuantity(product.getQuantity() + 1);
@@ -1340,7 +1392,7 @@ public class CustomerDashboard extends AppCompatActivity {
             });
 
             holder.minusButton.setOnClickListener(v -> {
-                if (!product.isAvailable()) {
+                if (!product.isAvailable() || isHomepageMode()) {
                     return;
                 }
                 if (product.getQuantity() > 0) {
@@ -1369,6 +1421,7 @@ public class CustomerDashboard extends AppCompatActivity {
         public class ViewHolder extends RecyclerView.ViewHolder {
             MaterialCardView productCardView;
             ImageView productImageView;
+            LinearLayout quantityControlsLayout;
             TextView productNameTextView, productDescriptionTextView, productPriceTextView, quantityTextView, unavailableTextView;
             ImageButton plusButton, minusButton;
 
@@ -1376,6 +1429,7 @@ public class CustomerDashboard extends AppCompatActivity {
                 super(itemView);
                 productCardView = (MaterialCardView) itemView;
                 productImageView = itemView.findViewById(R.id.productImageView);
+                quantityControlsLayout = itemView.findViewById(R.id.quantityControlsLayout);
                 productNameTextView = itemView.findViewById(R.id.productNameTextView);
                 productDescriptionTextView = itemView.findViewById(R.id.productDescriptionTextView);
                 productPriceTextView = itemView.findViewById(R.id.productPriceTextView);
