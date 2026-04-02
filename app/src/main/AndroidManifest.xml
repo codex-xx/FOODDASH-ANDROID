@@ -25,6 +25,9 @@
 
         <activity android:name=".RegisterActivity"/>
         <activity android:name=".CustomerDashboard"/>
+        <activity android:name=".CartActivity"/>
+        <activity android:name=".CheckoutActivity"/>
+        <activity android:name=".OrderTrackingActivity"/>
         <activity android:name=".DriverDashboard"/>
         <activity android:name=".ForgotPasswordActivity"/>
         <activity android:name=".VerifyCodeActivity"/>

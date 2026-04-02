@@ -126,7 +126,26 @@ public class LoginActivity extends AppCompatActivity {
                         }
 
                         SharedPreferences prefs = getApplicationContext().getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-                        prefs.edit().putString("api_token", apiToken).apply();
+                        int userId = extractUserId(response, data, user);
+                        String vehicleType = normalizeValue(firstNonEmpty(
+                            findFirstStringForKeys(user, "vehicle_type", "vehicleType", "vehicle"),
+                            findFirstStringForKeys(data, "vehicle_type", "vehicleType", "vehicle"),
+                            findFirstStringForKeys(response, "vehicle_type", "vehicleType", "vehicle")
+                        ));
+                        String deliveryAddress = firstNonEmpty(
+                            findFirstStringForKeys(user, "delivery_address", "address"),
+                            findFirstStringForKeys(data, "delivery_address", "address"),
+                            findFirstStringForKeys(response, "delivery_address", "address")
+                        );
+
+                        prefs.edit()
+                            .putString("api_token", apiToken)
+                            .putInt("user_id", userId)
+                            .putString("user_role", role)
+                            .putString("user_email", email)
+                            .putString("delivery_address", deliveryAddress)
+                            .putString("vehicle_type", vehicleType)
+                            .apply();
                         if (isDriver) {
                             prefs.edit().putString("driver_email", email).apply();
                         }
@@ -323,5 +342,43 @@ public class LoginActivity extends AppCompatActivity {
         }
 
         return "";
+    }
+
+    private int extractUserId(JSONObject response, JSONObject data, JSONObject user) {
+        int idFromUser = parseIntSafe(firstNonEmpty(
+                findFirstStringForKeys(user, "id", "user_id"),
+                findFirstStringForKeys(data, "id", "user_id"),
+                findFirstStringForKeys(response, "id", "user_id")
+        ));
+        if (idFromUser > 0) {
+            return idFromUser;
+        }
+
+        if (user != null) {
+            int parsed = user.optInt("id", user.optInt("user_id", -1));
+            if (parsed > 0) {
+                return parsed;
+            }
+        }
+
+        if (data != null) {
+            int parsed = data.optInt("id", data.optInt("user_id", -1));
+            if (parsed > 0) {
+                return parsed;
+            }
+        }
+
+        return response != null ? response.optInt("id", response.optInt("user_id", -1)) : -1;
+    }
+
+    private int parseIntSafe(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return -1;
+        }
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (NumberFormatException ignored) {
+            return -1;
+        }
     }
 }

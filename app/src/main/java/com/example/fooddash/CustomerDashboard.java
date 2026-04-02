@@ -45,11 +45,10 @@ import com.google.android.material.card.MaterialCardView;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.io.DataOutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -75,9 +74,13 @@ public class CustomerDashboard extends AppCompatActivity {
     private TextView searchMenuSectionTitle;
     private TextView searchNoResultsTextView;
     private EditText searchEditText;
+    private EditText deliveryAddressEditText;
     private Button btnPlaceOrder, btnLogout;
     private RadioGroup vehicleRadioGroup;
     private TextView totalPriceTextView;
+    private LinearLayout orderTrackingLayout;
+    private TextView orderStatusTimelineTextView;
+    private TextView driverLocationTextView;
     private RestaurantAdapter restaurantAdapter;
     private ProductAdapter adapter;
     private List<Product> productList;
@@ -95,14 +98,26 @@ public class CustomerDashboard extends AppCompatActivity {
     private final Handler searchHandler = new Handler(Looper.getMainLooper());
     private final Handler pollingHandler = new Handler(Looper.getMainLooper());
     private static final long POLLING_INTERVAL_MS = 10000L;
+        private static final long ORDER_POLLING_INTERVAL_MS = 4000L;
     private SearchRestaurantAdapter searchRestaurantAdapter;
     private SearchMenuItemAdapter searchMenuItemAdapter;
+    private final Map<String, CartEntry> globalCart = new LinkedHashMap<>();
+        private int activeOrderId = -1;
+        private String activeOrderStatus = "";
+        private final List<String> canonicalStatusFlow = Arrays.asList(
+            Constants.STATUS_PENDING,
+            Constants.STATUS_ACCEPTED,
+            Constants.STATUS_PREPARING,
+            Constants.STATUS_READY,
+            Constants.STATUS_ASSIGNED,
+            Constants.STATUS_ON_THE_WAY,
+            Constants.STATUS_DELIVERED
+        );
 
-    // Use the centralized URL from Constants
-    private static final String API_URL = Constants.BASE_URL + "orders";
-    private static final String ALL_RESTAURANTS_ENDPOINT = Constants.BASE_URL + "get_all_restaurants.php";
-    private static final String MENU_BY_RESTAURANT_ENDPOINT = Constants.BASE_URL + "get_menus_by_restaurant.php";
-    private static final String LEGACY_MENU_ENDPOINT = Constants.BASE_URL + "get_menus.php";
+        private static final String ORDERS_ENDPOINT = Constants.URL_ORDERS;
+        private static final String ALL_RESTAURANTS_ENDPOINT = Constants.URL_GET_ALL_RESTAURANTS;
+        private static final String MENU_BY_RESTAURANT_ENDPOINT = Constants.URL_GET_MENU_BY_RESTAURANT;
+        private static final String LEGACY_MENU_ENDPOINT = Constants.URL_GET_MENU_LEGACY;
     private static final String SEARCH_ENDPOINT = Constants.BASE_URL + "search.php";
 
     @Override
@@ -123,10 +138,14 @@ public class CustomerDashboard extends AppCompatActivity {
         searchMenuSectionTitle = findViewById(R.id.searchMenuSectionTitle);
         searchNoResultsTextView = findViewById(R.id.searchNoResultsTextView);
         searchEditText = findViewById(R.id.searchEditText);
+        deliveryAddressEditText = findViewById(R.id.deliveryAddressEditText);
         btnPlaceOrder = findViewById(R.id.btnPlaceOrder);
         btnLogout = findViewById(R.id.btnLogout);
         vehicleRadioGroup = findViewById(R.id.vehicleRadioGroup);
         totalPriceTextView = findViewById(R.id.totalPriceTextView);
+        orderTrackingLayout = findViewById(R.id.orderTrackingLayout);
+        orderStatusTimelineTextView = findViewById(R.id.orderStatusTimelineTextView);
+        driverLocationTextView = findViewById(R.id.driverLocationTextView);
 
         restaurantsRecyclerView.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
         productsRecyclerView.setLayoutManager(new GridLayoutManager(this, 2));
@@ -136,6 +155,7 @@ public class CustomerDashboard extends AppCompatActivity {
         searchMenuItemsRecyclerView.setNestedScrollingEnabled(false);
         requestQueue = Volley.newRequestQueue(this);
         restaurantId = getIntent().getIntExtra("restaurant_id", -1);
+        loadGlobalCart();
 
         productList = new ArrayList<>();
 
@@ -151,6 +171,8 @@ public class CustomerDashboard extends AppCompatActivity {
         searchMenuItemsRecyclerView.setAdapter(searchMenuItemAdapter);
 
         setupSearchInput();
+        setupDeliveryDefaults();
+        updateCartButtonState();
 
         swipeRefreshLayout.setOnRefreshListener(() -> {
             String query = searchEditText.getText().toString().trim();
@@ -164,7 +186,9 @@ public class CustomerDashboard extends AppCompatActivity {
         selectedRestaurantTextView.setText("Mixed picks from partner restaurants");
         updateOrderControlsState();
 
-        btnPlaceOrder.setOnClickListener(v -> placeOrder());
+        btnPlaceOrder.setOnClickListener(v -> openCartPage());
+
+        vehicleRadioGroup.setOnCheckedChangeListener((group, checkedId) -> calculateTotalPrice());
 
         btnLogout.setOnClickListener(v -> {
             // Clear session/token using Application Context
@@ -205,6 +229,65 @@ public class CustomerDashboard extends AppCompatActivity {
 
     private void stopMenuPolling() {
         pollingHandler.removeCallbacksAndMessages(null);
+    }
+
+    private void setupDeliveryDefaults() {
+        SharedPreferences prefs = getApplicationContext().getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
+        String savedAddress = prefs.getString("delivery_address", "");
+        if (!TextUtils.isEmpty(savedAddress)) {
+            deliveryAddressEditText.setText(savedAddress);
+        }
+        renderOrderTimeline("", "");
+
+        // Keep the browse page clean by moving checkout/tracking to dedicated pages.
+        deliveryAddressEditText.setVisibility(View.GONE);
+        vehicleRadioGroup.setVisibility(View.GONE);
+        totalPriceTextView.setVisibility(View.GONE);
+        orderTrackingLayout.setVisibility(View.GONE);
+    }
+
+    private void startOrderPolling() {
+        pollingHandler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                fetchLatestCustomerOrder();
+                pollingHandler.postDelayed(this, ORDER_POLLING_INTERVAL_MS);
+            }
+        }, ORDER_POLLING_INTERVAL_MS);
+    }
+
+    private void stopOrderPolling() {
+        pollingHandler.removeCallbacksAndMessages(null);
+    }
+
+    private int getSelectedItemCount() {
+        int count = 0;
+        for (Product product : adapter.getSelectedProducts()) {
+            count += product.getQuantity();
+        }
+        return count;
+    }
+
+    private String suggestDeliveryTypeByBasketSize(int itemCount) {
+        if (itemCount <= 3) {
+            return Constants.DELIVERY_MOTORCYCLE;
+        }
+        if (itemCount <= 8) {
+            return Constants.DELIVERY_TRICYCLE;
+        }
+        return Constants.DELIVERY_CAB;
+    }
+
+    private void autoSelectVehicleForCartSize() {
+        int itemCount = getSelectedItemCount();
+        String suggestion = suggestDeliveryTypeByBasketSize(itemCount);
+        if (Constants.DELIVERY_MOTORCYCLE.equals(suggestion)) {
+            vehicleRadioGroup.check(R.id.radioMotorcycle);
+        } else if (Constants.DELIVERY_TRICYCLE.equals(suggestion)) {
+            vehicleRadioGroup.check(R.id.radioTricycle);
+        } else {
+            vehicleRadioGroup.check(R.id.radioCab);
+        }
     }
 
     private void setupSearchInput() {
@@ -646,16 +729,155 @@ public class CustomerDashboard extends AppCompatActivity {
     }
 
     private void updateOrderControlsState() {
-        boolean canOrder = !isHomepageMode();
-        btnPlaceOrder.setVisibility(canOrder ? View.VISIBLE : View.GONE);
-        vehicleRadioGroup.setVisibility(canOrder ? View.VISIBLE : View.GONE);
-        totalPriceTextView.setVisibility(canOrder ? View.VISIBLE : View.GONE);
+        btnPlaceOrder.setVisibility(View.VISIBLE);
+        vehicleRadioGroup.setVisibility(View.GONE);
+        totalPriceTextView.setVisibility(View.GONE);
 
-        if (!canOrder) {
-            calculateTotalPrice();
-        }
+        updateCartButtonState();
 
         adapter.notifyDataSetChanged();
+    }
+
+    private void openCartPage() {
+        List<CartEntry> selectedProducts = getGlobalCartItems();
+        if (selectedProducts.isEmpty()) {
+            Toast.makeText(this, "Please add at least one item to cart", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        JSONArray itemsArray = new JSONArray();
+        for (CartEntry product : selectedProducts) {
+            JSONObject item = new JSONObject();
+            try {
+                item.put("menu_item_id", product.getId());
+                item.put("name", product.getName());
+                item.put("quantity", product.getQuantity());
+                item.put("price", product.getPrice());
+                item.put("restaurant_id", product.getRestaurantId());
+                item.put("restaurant_name", product.getRestaurantName());
+            } catch (Exception ignored) {
+            }
+            itemsArray.put(item);
+        }
+
+        Intent intent = new Intent(this, CartActivity.class);
+        intent.putExtra("restaurant_id", restaurantId);
+        intent.putExtra("cart_items_json", itemsArray.toString());
+        intent.putExtra("subtotal", calculateGlobalCartTotal());
+        startActivity(intent);
+    }
+
+    private List<CartEntry> getGlobalCartItems() {
+        return new ArrayList<>(globalCart.values());
+    }
+
+    private void updateCartButtonState() {
+        int itemCount = getGlobalCartItemCount();
+        btnPlaceOrder.setText("Cart (" + itemCount + ")");
+    }
+
+    private int getGlobalCartItemCount() {
+        int count = 0;
+        for (CartEntry entry : globalCart.values()) {
+            count += entry.getQuantity();
+        }
+        return count;
+    }
+
+    private double calculateGlobalCartTotal() {
+        double total = 0;
+        for (CartEntry entry : globalCart.values()) {
+            total += entry.getPrice() * entry.getQuantity();
+        }
+        return total;
+    }
+
+    private String buildCartKey(int targetRestaurantId, int productId, String productName) {
+        String base = buildProductKey(productId, productName);
+        return "restaurant:" + targetRestaurantId + ":" + base;
+    }
+
+    private String getCurrentRestaurantName() {
+        if (selectedRestaurantPosition >= 0 && selectedRestaurantPosition < restaurantList.size()) {
+            return restaurantList.get(selectedRestaurantPosition).getName();
+        }
+        return "Restaurant";
+    }
+
+    private int getQuantityFromGlobalCart(Product product, int targetRestaurantId) {
+        CartEntry entry = globalCart.get(buildCartKey(targetRestaurantId, product.getId(), product.getName()));
+        return entry != null ? entry.getQuantity() : 0;
+    }
+
+    private void syncProductWithGlobalCart(Product product, int targetRestaurantId) {
+        String key = buildCartKey(targetRestaurantId, product.getId(), product.getName());
+        if (product.getQuantity() <= 0) {
+            globalCart.remove(key);
+            saveGlobalCart();
+            updateCartButtonState();
+            return;
+        }
+
+        CartEntry entry = new CartEntry(
+                targetRestaurantId,
+                getCurrentRestaurantName(),
+                product.getId(),
+                product.getName(),
+                product.getPrice(),
+                product.getQuantity()
+        );
+        globalCart.put(key, entry);
+        saveGlobalCart();
+        updateCartButtonState();
+    }
+
+    private void loadGlobalCart() {
+        globalCart.clear();
+        SharedPreferences prefs = getApplicationContext().getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
+        String raw = prefs.getString("global_cart_json", "[]");
+        try {
+            JSONArray array = new JSONArray(raw);
+            for (int i = 0; i < array.length(); i++) {
+                JSONObject item = array.optJSONObject(i);
+                if (item == null) {
+                    continue;
+                }
+
+                CartEntry entry = new CartEntry(
+                        item.optInt("restaurant_id", -1),
+                        item.optString("restaurant_name", "Restaurant"),
+                        item.optInt("menu_item_id", -1),
+                        item.optString("name", "Item"),
+                        item.optDouble("price", 0.0),
+                        item.optInt("quantity", 0)
+                );
+
+                if (entry.getQuantity() > 0) {
+                    globalCart.put(buildCartKey(entry.getRestaurantId(), entry.getId(), entry.getName()), entry);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void saveGlobalCart() {
+        JSONArray array = new JSONArray();
+        for (CartEntry entry : globalCart.values()) {
+            JSONObject item = new JSONObject();
+            try {
+                item.put("restaurant_id", entry.getRestaurantId());
+                item.put("restaurant_name", entry.getRestaurantName());
+                item.put("menu_item_id", entry.getId());
+                item.put("name", entry.getName());
+                item.put("price", entry.getPrice());
+                item.put("quantity", entry.getQuantity());
+            } catch (Exception ignored) {
+            }
+            array.put(item);
+        }
+
+        SharedPreferences prefs = getApplicationContext().getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
+        prefs.edit().putString("global_cart_json", array.toString()).apply();
     }
 
     private void fetchMixedMenuPreview(boolean showBlockingLoader) {
@@ -813,12 +1035,187 @@ public class CustomerDashboard extends AppCompatActivity {
         requestQueue.add(objectRequest);
     }
 
-    private void applyMenuData(JSONArray menus) {
-        Map<String, Integer> existingQuantities = new HashMap<>();
-        for (Product existingProduct : productList) {
-            existingQuantities.put(buildProductKey(existingProduct.getId(), existingProduct.getName()), existingProduct.getQuantity());
+    private void fetchLatestCustomerOrder() {
+        SharedPreferences prefs = getApplicationContext().getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
+        int userId = prefs.getInt("user_id", -1);
+        if (userId <= 0) {
+            return;
         }
 
+        String url = ORDERS_ENDPOINT + "/" + userId;
+        JsonObjectRequest request = new JsonObjectRequest(
+                Request.Method.GET,
+                url,
+                null,
+                response -> {
+                    JSONObject latestOrder = findLatestOrder(response);
+                    applyOrderTracking(latestOrder);
+                },
+                error -> fetchLegacyCustomerOrders(userId)
+        ) {
+            @Override
+            public Map<String, String> getHeaders() {
+                return buildAuthHeaders();
+            }
+        };
+
+        requestQueue.add(request);
+    }
+
+    private void fetchLegacyCustomerOrders(int userId) {
+        String url = Constants.URL_GET_ORDERS_LEGACY + "?user_id=" + userId;
+        JsonObjectRequest request = new JsonObjectRequest(
+                Request.Method.GET,
+                url,
+                null,
+                response -> applyOrderTracking(findLatestOrder(response)),
+                error -> Log.d("CustomerDashboard", "No active customer order from legacy endpoint")
+        ) {
+            @Override
+            public Map<String, String> getHeaders() {
+                return buildAuthHeaders();
+            }
+        };
+
+        requestQueue.add(request);
+    }
+
+    private JSONObject findLatestOrder(JSONObject response) {
+        if (response == null) {
+            return null;
+        }
+
+        JSONObject directOrder = response.optJSONObject("order");
+        if (directOrder != null) {
+            return directOrder;
+        }
+
+        JSONArray candidates = response.optJSONArray("orders");
+        if (candidates == null) {
+            JSONObject data = response.optJSONObject("data");
+            if (data != null) {
+                candidates = data.optJSONArray("orders");
+            }
+        }
+        if (candidates == null) {
+            candidates = response.optJSONArray("data");
+        }
+
+        if (candidates == null || candidates.length() == 0) {
+            return null;
+        }
+
+        JSONObject latest = candidates.optJSONObject(0);
+        for (int i = 0; i < candidates.length(); i++) {
+            JSONObject item = candidates.optJSONObject(i);
+            if (item == null) {
+                continue;
+            }
+            String status = normalizeStatus(item.optString("status", ""));
+            if (!Constants.STATUS_DELIVERED.equals(status)) {
+                latest = item;
+                break;
+            }
+        }
+        return latest;
+    }
+
+    private void applyOrderTracking(JSONObject order) {
+        if (order == null) {
+            activeOrderId = -1;
+            activeOrderStatus = "";
+            renderOrderTimeline("", "");
+            return;
+        }
+
+        activeOrderId = order.optInt("id", order.optInt("order_id", -1));
+        activeOrderStatus = normalizeStatus(order.optString("status", Constants.STATUS_PENDING));
+
+        String location = firstNonEmpty(
+                order.optString("driver_location", ""),
+                order.optString("current_location", ""),
+                order.optString("driver_latlng", "")
+        );
+
+        JSONObject driver = order.optJSONObject("driver");
+        if (driver != null && TextUtils.isEmpty(location)) {
+            location = firstNonEmpty(
+                    driver.optString("location", ""),
+                    driver.optString("last_known_location", ""),
+                    driver.optString("lat_lng", "")
+            );
+        }
+
+        renderOrderTimeline(activeOrderStatus, location);
+    }
+
+    private void renderOrderTimeline(String currentStatus, String driverLocation) {
+        if (TextUtils.isEmpty(currentStatus)) {
+            orderTrackingLayout.setVisibility(View.GONE);
+            orderStatusTimelineTextView.setText("No active order");
+            driverLocationTextView.setText("Driver location: waiting assignment");
+            return;
+        }
+
+        orderTrackingLayout.setVisibility(View.VISIBLE);
+        StringBuilder builder = new StringBuilder();
+        for (int i = 0; i < canonicalStatusFlow.size(); i++) {
+            String step = canonicalStatusFlow.get(i);
+            boolean reached = canonicalStatusFlow.indexOf(currentStatus) >= i;
+            builder.append(reached ? "[x] " : "[ ] ").append(step);
+            if (i < canonicalStatusFlow.size() - 1) {
+                builder.append("\n");
+            }
+        }
+        orderStatusTimelineTextView.setText(builder.toString());
+
+        if (TextUtils.isEmpty(driverLocation)) {
+            driverLocationTextView.setText("Driver location: updating from backend...");
+        } else {
+            driverLocationTextView.setText("Driver location: " + driverLocation);
+        }
+    }
+
+    private String normalizeStatus(String rawStatus) {
+        String status = rawStatus == null ? "" : rawStatus.trim();
+        if (status.isEmpty()) {
+            return Constants.STATUS_PENDING;
+        }
+
+        String normalized = status.toLowerCase(Locale.ROOT);
+        if (normalized.contains("accepted")) return Constants.STATUS_ACCEPTED;
+        if (normalized.contains("prepar")) return Constants.STATUS_PREPARING;
+        if (normalized.contains("ready")) return Constants.STATUS_READY;
+        if (normalized.contains("assigned")) return Constants.STATUS_ASSIGNED;
+        if (normalized.contains("way") || normalized.contains("transit")) return Constants.STATUS_ON_THE_WAY;
+        if (normalized.contains("deliver")) return Constants.STATUS_DELIVERED;
+        if (normalized.contains("pending")) return Constants.STATUS_PENDING;
+        return status;
+    }
+
+    private String firstNonEmpty(String... values) {
+        if (values == null) {
+            return "";
+        }
+        for (String value : values) {
+            if (!TextUtils.isEmpty(value) && !"null".equalsIgnoreCase(value.trim())) {
+                return value.trim();
+            }
+        }
+        return "";
+    }
+
+    private Map<String, String> buildAuthHeaders() {
+        Map<String, String> headers = new HashMap<>();
+        SharedPreferences prefs = getApplicationContext().getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
+        String token = prefs.getString("api_token", "");
+        if (!TextUtils.isEmpty(token)) {
+            headers.put("Authorization", "Bearer " + token);
+        }
+        return headers;
+    }
+
+    private void applyMenuData(JSONArray menus) {
         productList.clear();
         for (int i = 0; i < menus.length(); i++) {
             JSONObject item = menus.optJSONObject(i);
@@ -827,10 +1224,7 @@ public class CustomerDashboard extends AppCompatActivity {
             }
 
             Product product = parseProductFromJson(item, null, false);
-            Integer previousQuantity = existingQuantities.get(buildProductKey(product.getId(), product.getName()));
-            if (previousQuantity != null && previousQuantity > 0) {
-                product.setQuantity(previousQuantity);
-            }
+            product.setQuantity(getQuantityFromGlobalCart(product, restaurantId));
             productList.add(product);
         }
 
@@ -983,7 +1377,38 @@ public class CustomerDashboard extends AppCompatActivity {
     }
 
     private void calculateTotalPrice() {
-        totalPriceTextView.setText(String.format(Locale.getDefault(), "Total: ₱%.2f", calculateTotal()));
+        double subtotal = calculateTotal();
+        double deliveryFee = getSelectedDeliveryFee();
+        double grandTotal = subtotal + deliveryFee;
+        totalPriceTextView.setText(String.format(
+                Locale.getDefault(),
+                "Subtotal: ₱%.2f | Delivery: ₱%.2f | Total: ₱%.2f",
+                subtotal,
+                deliveryFee,
+                grandTotal
+        ));
+    }
+
+    private String getSelectedDeliveryType() {
+        int checkedId = vehicleRadioGroup.getCheckedRadioButtonId();
+        if (checkedId == R.id.radioTricycle) {
+            return Constants.DELIVERY_TRICYCLE;
+        }
+        if (checkedId == R.id.radioCab) {
+            return Constants.DELIVERY_CAB;
+        }
+        return Constants.DELIVERY_MOTORCYCLE;
+    }
+
+    private double getSelectedDeliveryFee() {
+        String deliveryType = getSelectedDeliveryType();
+        if (Constants.DELIVERY_TRICYCLE.equals(deliveryType)) {
+            return Constants.FEE_TRICYCLE;
+        }
+        if (Constants.DELIVERY_CAB.equals(deliveryType)) {
+            return Constants.FEE_CAB;
+        }
+        return Constants.FEE_MOTORCYCLE;
     }
 
     private void placeOrder() {
@@ -998,72 +1423,116 @@ public class CustomerDashboard extends AppCompatActivity {
             return;
         }
 
+        String deliveryAddress = deliveryAddressEditText.getText().toString().trim();
+        if (deliveryAddress.isEmpty()) {
+            Toast.makeText(this, "Please enter delivery address", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        autoSelectVehicleForCartSize();
+        String deliveryType = getSelectedDeliveryType();
+        double subtotal = calculateTotal();
+        double deliveryFee = getSelectedDeliveryFee();
+        double grandTotal = subtotal + deliveryFee;
+
         // Get token from SharedPreferences using Application Context
         SharedPreferences prefs = getApplicationContext().getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
         String token = prefs.getString("api_token", null);
-        Log.d("CustomerDashboard", "Retrieved token for order: " + token);
+        int userId = prefs.getInt("user_id", -1);
         if (token == null || token.isEmpty()) {
             Toast.makeText(this, "You are not logged in. Please log in again.", Toast.LENGTH_SHORT).show();
             return;
         }
 
-        new Thread(() -> {
-            HttpURLConnection conn = null;
-            try {
-                URL url = new URL(API_URL);
-                conn = (HttpURLConnection) url.openConnection();
-                conn.setRequestMethod("POST");
-                conn.setRequestProperty("Content-Type", "application/json;charset=UTF-8");
-                conn.setRequestProperty("Accept", "application/json");
-                conn.setRequestProperty("Authorization", "Bearer " + token);
-                conn.setDoOutput(true);
-                conn.setDoInput(true);
+        JSONObject jsonPayload = new JSONObject();
+        try {
+            jsonPayload.put("user_id", userId);
+            jsonPayload.put("restaurant_id", restaurantId);
+            jsonPayload.put("delivery_type", deliveryType);
+            jsonPayload.put("delivery_fee", deliveryFee);
+            jsonPayload.put("subtotal", subtotal);
+            jsonPayload.put("total_amount", grandTotal);
+            jsonPayload.put("delivery_address", deliveryAddress);
+            jsonPayload.put("status", Constants.STATUS_PENDING);
 
-                JSONObject jsonPayload = new JSONObject();
-                jsonPayload.put("restaurant_id", restaurantId);
-                jsonPayload.put("total_amount", calculateTotal());
-                jsonPayload.put("delivery_address", "123 Food Street, App City");
-
-                JSONArray itemsArray = new JSONArray();
-                for (Product product : selectedProducts) {
-                    JSONObject item = new JSONObject();
-                    item.put("name", product.getName());
-                    item.put("quantity", product.getQuantity());
-                    item.put("price", product.getPrice());
-                    itemsArray.put(item);
-                }
-                jsonPayload.put("items", itemsArray);
-
-
-                DataOutputStream os = new DataOutputStream(conn.getOutputStream());
-                os.writeBytes(jsonPayload.toString());
-                os.flush();
-                os.close();
-
-                int responseCode = conn.getResponseCode();
-                if (responseCode == HttpURLConnection.HTTP_CREATED) {
-                    runOnUiThread(() -> {
-                        Toast.makeText(CustomerDashboard.this, "Order placed successfully!", Toast.LENGTH_LONG).show();
-                        // Reset quantities
-                        for(Product p : productList) p.setQuantity(0);
-                        adapter.notifyDataSetChanged();
-                        calculateTotalPrice();
-                    });
-                } else {
-                    final String errorResponse = new java.util.Scanner(conn.getErrorStream()).useDelimiter("\\A").next();
-                    Log.e("CustomerDashboard", "Error response from server (" + responseCode + "): " + errorResponse);
-                    runOnUiThread(() -> Toast.makeText(CustomerDashboard.this, "Failed to place order. Server code: " + responseCode, Toast.LENGTH_LONG).show());
-                }
-
-            } catch (Exception e) {
-                e.printStackTrace();
-                runOnUiThread(() -> Toast.makeText(CustomerDashboard.this, "Error placing order: " + e.getMessage(), Toast.LENGTH_LONG).show());
-            } finally {
-                if (conn != null) {
-                    conn.disconnect();
-                }
+            JSONArray itemsArray = new JSONArray();
+            for (Product product : selectedProducts) {
+                JSONObject item = new JSONObject();
+                item.put("menu_item_id", product.getId());
+                item.put("name", product.getName());
+                item.put("quantity", product.getQuantity());
+                item.put("price", product.getPrice());
+                itemsArray.put(item);
             }
-        }).start();
+            jsonPayload.put("items", itemsArray);
+        } catch (Exception e) {
+            Toast.makeText(this, "Unable to prepare order payload", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        JsonObjectRequest request = new JsonObjectRequest(
+                Request.Method.POST,
+                ORDERS_ENDPOINT,
+                jsonPayload,
+                response -> {
+                    JSONObject placedOrder = response.optJSONObject("order");
+                    if (placedOrder != null) {
+                        activeOrderId = placedOrder.optInt("id", placedOrder.optInt("order_id", -1));
+                        activeOrderStatus = normalizeStatus(placedOrder.optString("status", Constants.STATUS_PENDING));
+                    } else {
+                        activeOrderStatus = Constants.STATUS_PENDING;
+                    }
+                    renderOrderTimeline(activeOrderStatus, "");
+
+                    Toast.makeText(CustomerDashboard.this, "Order placed successfully!", Toast.LENGTH_LONG).show();
+                    for (Product p : productList) {
+                        p.setQuantity(0);
+                    }
+                    adapter.notifyDataSetChanged();
+                    calculateTotalPrice();
+                    fetchLatestCustomerOrder();
+                },
+                error -> placeOrderLegacy(jsonPayload)
+        ) {
+            @Override
+            public Map<String, String> getHeaders() {
+                return buildAuthHeaders();
+            }
+        };
+
+        requestQueue.add(request);
+    }
+
+    private void placeOrderLegacy(JSONObject payload) {
+        JsonObjectRequest legacyRequest = new JsonObjectRequest(
+                Request.Method.POST,
+                Constants.URL_PLACE_ORDER_LEGACY,
+                payload,
+                response -> {
+                    activeOrderId = response.optInt("order_id", response.optInt("id", -1));
+                    activeOrderStatus = normalizeStatus(response.optString("status", Constants.STATUS_PENDING));
+                    renderOrderTimeline(activeOrderStatus, "");
+
+                    Toast.makeText(CustomerDashboard.this, "Order placed successfully!", Toast.LENGTH_LONG).show();
+                    for (Product p : productList) {
+                        p.setQuantity(0);
+                    }
+                    adapter.notifyDataSetChanged();
+                    calculateTotalPrice();
+                    fetchLatestCustomerOrder();
+                },
+                error -> {
+                    Log.e("CustomerDashboard", "Failed to place order", error);
+                    Toast.makeText(CustomerDashboard.this, "Failed to place order", Toast.LENGTH_LONG).show();
+                }
+        ) {
+            @Override
+            public Map<String, String> getHeaders() {
+                return buildAuthHeaders();
+            }
+        };
+
+        requestQueue.add(legacyRequest);
     }
 
 
@@ -1135,6 +1604,48 @@ public class CustomerDashboard extends AppCompatActivity {
 
         public void setQuantity(int quantity) {
             this.quantity = quantity;
+        }
+    }
+
+    private static class CartEntry {
+        int restaurantId;
+        String restaurantName;
+        int id;
+        String name;
+        double price;
+        int quantity;
+
+        CartEntry(int restaurantId, String restaurantName, int id, String name, double price, int quantity) {
+            this.restaurantId = restaurantId;
+            this.restaurantName = restaurantName;
+            this.id = id;
+            this.name = name;
+            this.price = price;
+            this.quantity = quantity;
+        }
+
+        int getRestaurantId() {
+            return restaurantId;
+        }
+
+        String getRestaurantName() {
+            return restaurantName;
+        }
+
+        int getId() {
+            return id;
+        }
+
+        String getName() {
+            return name;
+        }
+
+        double getPrice() {
+            return price;
+        }
+
+        int getQuantity() {
+            return quantity;
         }
     }
 
@@ -1358,6 +1869,7 @@ public class CustomerDashboard extends AppCompatActivity {
 
             if (unavailable && product.getQuantity() != 0) {
                 product.setQuantity(0);
+                syncProductWithGlobalCart(product, restaurantId);
                 holder.quantityTextView.setText("0");
                 calculateTotalPrice();
             }
@@ -1387,7 +1899,9 @@ public class CustomerDashboard extends AppCompatActivity {
                     return;
                 }
                 product.setQuantity(product.getQuantity() + 1);
+                syncProductWithGlobalCart(product, restaurantId);
                 notifyItemChanged(position);
+                autoSelectVehicleForCartSize();
                 calculateTotalPrice();
             });
 
@@ -1397,7 +1911,9 @@ public class CustomerDashboard extends AppCompatActivity {
                 }
                 if (product.getQuantity() > 0) {
                     product.setQuantity(product.getQuantity() - 1);
+                    syncProductWithGlobalCart(product, restaurantId);
                     notifyItemChanged(position);
+                    autoSelectVehicleForCartSize();
                     calculateTotalPrice();
                 }
             });

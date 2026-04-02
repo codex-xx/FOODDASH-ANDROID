@@ -103,11 +103,27 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/restaurantsRecyclerView" />
 
+    <EditText
+        android:id="@+id/deliveryAddressEditText"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="8dp"
+        android:layout_marginEnd="16dp"
+        android:background="@android:drawable/edit_text"
+        android:hint="Delivery address"
+        android:inputType="textPostalAddress"
+        android:maxLines="2"
+        android:padding="10dp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/selectedRestaurantTextView" />
+
     <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
         android:id="@+id/swipeRefreshLayout"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        app:layout_constraintTop_toBottomOf="@+id/selectedRestaurantTextView"
+        app:layout_constraintTop_toBottomOf="@+id/deliveryAddressEditText"
         app:layout_constraintBottom_toTopOf="@+id/vehicleRadioGroup"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
@@ -224,10 +240,17 @@
             android:checked="true"/>
 
         <RadioButton
-            android:id="@+id/radioCar"
+            android:id="@+id/radioTricycle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Car"
+            android:text="Tricycle"
+            android:layout_marginStart="16dp"/>
+
+        <RadioButton
+            android:id="@+id/radioCab"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Cab"
             android:layout_marginStart="16dp"/>
 
     </RadioGroup>
@@ -249,7 +272,7 @@
         style="?attr/materialButtonOutlinedStyle"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:text="Place Order"
+        android:text="Review Cart"
         android:textColor="@color/black"
         app:strokeColor="@color/black"
         app:backgroundTint="@color/white"
@@ -257,7 +280,46 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         android:layout_marginStart="16dp"
-        android:layout_marginEnd="16dp"/>
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="8dp"/>
+
+    <LinearLayout
+        android:id="@+id/orderTrackingLayout"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="8dp"
+        android:background="@drawable/view_border"
+        android:orientation="vertical"
+        android:padding="10dp"
+        android:visibility="gone"
+        app:layout_constraintBottom_toTopOf="@id/btnLogout"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Live Order Tracking"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/orderStatusTimelineTextView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="No active order"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/driverLocationTextView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Driver location: waiting assignment"
+            android:textSize="12sp" />
+    </LinearLayout>
 
     <Button
         android:id="@+id/btnLogout"
