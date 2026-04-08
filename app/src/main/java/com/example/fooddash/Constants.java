@@ -2,10 +2,15 @@ package com.example.fooddash;
 
 public class Constants {
     // IMPORTANT: Make sure this is the correct IP address for your XAMPP server.
-    public static final String IP_ADDRESS = "192.168.1.129";
+    // Try using "10.0.2.2" if you are using the Android Emulator.
+    // Use your actual IP (e.g., 192.168.1.7) if using a physical device.
+    public static final String IP_ADDRESS = "192.168.1.7"; 
 
     public static final String BASE_URL = "http://" + IP_ADDRESS + "/FoodDash/api/";
     public static final String URL_SEND_NOTIFICATION_EMAIL = BASE_URL + "send-notification-email";
+    
+    // Auth
+    public static final String URL_LOGIN = BASE_URL + "login";
 
     // Core order-flow endpoints (REST style)
     public static final String URL_RESTAURANTS = BASE_URL + "restaurants";
@@ -23,18 +28,16 @@ public class Constants {
     public static final String URL_GET_DRIVER_ORDERS_LEGACY = BASE_URL + "get_driver_orders.php";
     public static final String URL_UPDATE_ORDER_STATUS_LEGACY = BASE_URL + "update_order_status.php";
 
-    // Canonical order statuses shared by customer, driver, admin, and restaurant panel.
-    public static final String STATUS_PENDING = "Pending";
-    public static final String STATUS_ACCEPTED = "Accepted by Restaurant";
-    public static final String STATUS_PREPARING = "Preparing";
-    public static final String STATUS_READY = "Ready for Pickup";
-    public static final String STATUS_ASSIGNED = "Assigned to Driver";
-    public static final String STATUS_ON_THE_WAY = "On the Way";
-    public static final String STATUS_DELIVERED = "Delivered";
-
-    // Driver-side operational updates.
-    public static final String STATUS_ARRIVED_RESTAURANT = "Arrived at Restaurant";
-    public static final String STATUS_PICKED_UP = "Picked Up Order";
+    // Canonical order statuses (Lowercased for database compatibility)
+    public static final String STATUS_PENDING = "pending";
+    public static final String STATUS_ACCEPTED = "accepted";
+    public static final String STATUS_PREPARING = "preparing";
+    public static final String STATUS_READY = "ready";
+    public static final String STATUS_ASSIGNED = "assigned";
+    public static final String STATUS_ARRIVED_RESTAURANT = "arrived";
+    public static final String STATUS_PICKED_UP = "picked_up";
+    public static final String STATUS_ON_THE_WAY = "on_the_way";
+    public static final String STATUS_DELIVERED = "delivered";
 
     // Delivery type keys and fixed fees.
     public static final String DELIVERY_MOTORCYCLE = "motorcycle";

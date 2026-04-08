@@ -32,6 +32,7 @@
         <activity android:name=".ForgotPasswordActivity"/>
         <activity android:name=".VerifyCodeActivity"/>
         <activity android:name=".ResetPasswordActivity"/>
+        <activity android:name=".ActiveOrderActivity"/>
 
     </application>
 </manifest>

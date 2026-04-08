@@ -163,14 +163,37 @@ public class CheckoutActivity extends AppCompatActivity {
         JSONObject payload = new JSONObject();
         try {
             payload.put("user_id", userId);
+            payload.put("customer_id", userId); // Fallback key
             payload.put("restaurant_id", group.restaurantId);
             payload.put("delivery_type", deliveryType);
             payload.put("delivery_fee", deliveryFee);
             payload.put("subtotal", group.subtotal);
             payload.put("total_amount", total);
+            payload.put("total", total); // Fallback key
             payload.put("delivery_address", address);
-            payload.put("status", Constants.STATUS_PENDING);
-            payload.put("items", group.items);
+            payload.put("address", address); // Fallback key
+            payload.put("status", "pending"); // Force lowercase for DB compatibility
+
+            JSONArray mappedItems = new JSONArray();
+            for (int i = 0; i < group.items.length(); i++) {
+                JSONObject original = group.items.optJSONObject(i);
+                if (original == null) continue;
+                
+                JSONObject mapped = new JSONObject();
+                int mid = original.optInt("menu_item_id", -1);
+                mapped.put("menu_item_id", mid);
+                mapped.put("food_id", mid); // Fallback
+                mapped.put("name", original.optString("name"));
+                mapped.put("food_name", original.optString("name")); // Fallback
+                int qty = original.optInt("quantity");
+                mapped.put("quantity", qty);
+                mapped.put("qty", qty); // Fallback
+                double price = original.optDouble("price");
+                mapped.put("price", price);
+                mapped.put("unit_price", price); // Fallback
+                mappedItems.put(mapped);
+            }
+            payload.put("items", mappedItems);
         } catch (Exception e) {
             Toast.makeText(this, "Unable to build order payload", Toast.LENGTH_SHORT).show();
             return;
@@ -210,7 +233,10 @@ public class CheckoutActivity extends AppCompatActivity {
                     removeOrderedItemsFromGlobalCart(orderGroups.get(index).items);
                     placeOrderGroup(index + 1, userId, token, address, deliveryType, deliveryFee);
                 },
-                error -> Toast.makeText(this, "Failed to place one of the restaurant orders", Toast.LENGTH_LONG).show()
+                error -> {
+                    Toast.makeText(this, "Server error (500) - check XAMPP error logs", Toast.LENGTH_LONG).show();
+                    placeOrderGroup(index + 1, userId, token, address, deliveryType, deliveryFee);
+                }
         ) {
             @Override
             public Map<String, String> getHeaders() {
