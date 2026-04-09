@@ -40,7 +40,8 @@ public class RegisterActivity extends AppCompatActivity {
     LinearLayout driverFieldsContainer;
     RadioGroup roleGroup;
     Button btnRegister, btnLogin;
-    String URL_REGISTER = Constants.BASE_URL + "register"; // Use the centralized URL
+    String URL_REGISTER = Constants.URL_REGISTER;
+    String URL_REGISTER_LEGACY = Constants.BASE_URL + "register.php";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -161,6 +162,11 @@ public class RegisterActivity extends AppCompatActivity {
             return;
         }
 
+        if (!isStrongPassword(password)) {
+            Toast.makeText(this, getString(R.string.password_policy_error), Toast.LENGTH_LONG).show();
+            return;
+        }
+
         JSONObject postData = new JSONObject();
         try {
             postData.put("name", name);
@@ -181,7 +187,11 @@ public class RegisterActivity extends AppCompatActivity {
             return;
         }
 
-        JsonObjectRequest request = new JsonObjectRequest(Request.Method.POST, URL_REGISTER, postData,
+        submitRegistration(postData, role, email, name, true, URL_REGISTER);
+    }
+
+    private void submitRegistration(JSONObject postData, String role, String email, String name, boolean allowFallback, String targetUrl) {
+        JsonObjectRequest request = new JsonObjectRequest(Request.Method.POST, targetUrl, postData,
                 response -> {
                     boolean isSuccess = response.optBoolean("success", false) || "success".equals(response.optString("status"));
                     if (isSuccess) {
@@ -198,9 +208,6 @@ public class RegisterActivity extends AppCompatActivity {
 
                         Intent loginIntent = new Intent(this, LoginActivity.class);
                         loginIntent.putExtra("email", email);
-                        if ("customer".equals(role)) {
-                            loginIntent.putExtra("password", password);
-                        }
                         loginIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
                         startActivity(loginIntent);
                         finish();
@@ -238,6 +245,12 @@ public class RegisterActivity extends AppCompatActivity {
                             Log.e("RegisterActivity", "Error parsing error JSON: " + responseBody, e);
                         }
                     }
+
+                    if (allowFallback && message.toLowerCase().contains("mfa_enabled")) {
+                        submitRegistration(postData, role, email, name, false, URL_REGISTER_LEGACY);
+                        return;
+                    }
+
                     Log.e("RegisterActivity", "Registration Volley Error", error);
                     Toast.makeText(this, message, Toast.LENGTH_LONG).show();
                 }
@@ -249,5 +262,27 @@ public class RegisterActivity extends AppCompatActivity {
                 com.android.volley.DefaultRetryPolicy.DEFAULT_BACKOFF_MULT));
 
         Volley.newRequestQueue(this).add(request);
+    }
+
+    private boolean isStrongPassword(String password) {
+        if (password == null || password.length() < 8) {
+            return false;
+        }
+
+        boolean hasUpper = false;
+        boolean hasLower = false;
+        boolean hasDigit = false;
+
+        for (char ch : password.toCharArray()) {
+            if (Character.isUpperCase(ch)) {
+                hasUpper = true;
+            } else if (Character.isLowerCase(ch)) {
+                hasLower = true;
+            } else if (Character.isDigit(ch)) {
+                hasDigit = true;
+            }
+        }
+
+        return hasUpper && hasLower && hasDigit;
     }
 }
