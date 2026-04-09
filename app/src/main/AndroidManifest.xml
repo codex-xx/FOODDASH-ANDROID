@@ -23,18 +23,18 @@
             </intent-filter>
         </activity>
 
-        <activity android:name=".RegisterActivity"/>
-        <activity android:name=".CustomerDashboard"/>
-        <activity android:name=".CartActivity"/>
-        <activity android:name=".CheckoutActivity"/>
-        <activity android:name=".OrderTrackingActivity"/>
-        <activity android:name=".DriverDashboard"/>
-        <activity android:name=".ForgotPasswordActivity"/>
-        <activity android:name=".VerifyCodeActivity"/>
-        <activity android:name=".MfaVerificationActivity"/>
-        <activity android:name=".ResetPasswordActivity"/>
-        <activity android:name=".ActiveOrderActivity"/>
-        <activity android:name=".DriverHistoryActivity"/>
+        <activity android:name=".RegisterActivity" android:exported="false"/>
+        <activity android:name=".CustomerDashboard" android:exported="false"/>
+        <activity android:name=".CartActivity" android:exported="false"/>
+        <activity android:name=".CheckoutActivity" android:exported="false"/>
+        <activity android:name=".OrderTrackingActivity" android:exported="false"/>
+        <activity android:name=".DriverDashboard" android:exported="false"/>
+        <activity android:name=".ForgotPasswordActivity" android:exported="false"/>
+        <activity android:name=".VerifyCodeActivity" android:exported="false"/>
+        <activity android:name=".MfaVerificationActivity" android:exported="false"/>
+        <activity android:name=".ResetPasswordActivity" android:exported="false"/>
+        <activity android:name=".ActiveOrderActivity" android:exported="false"/>
+        <activity android:name=".DriverHistoryActivity" android:exported="false"/>
 
     </application>
 </manifest>
