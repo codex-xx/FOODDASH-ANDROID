@@ -320,7 +320,7 @@ public class ActiveOrderActivity extends AppCompatActivity {
 
     private Map<String, String> buildAuthHeaders() {
         Map<String, String> headers = new HashMap<>();
-        String token = getSharedPreferences("fooddash_prefs", MODE_PRIVATE).getString("api_token", "");
+        String token = AuthSessionManager.getValidAccessTokenOrNull(this);
         if (!TextUtils.isEmpty(token)) {
             headers.put("Authorization", "Bearer " + token);
         }

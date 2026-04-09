@@ -209,6 +209,7 @@ public class CustomerDashboard extends AppCompatActivity {
         vehicleRadioGroup.setOnCheckedChangeListener((group, checkedId) -> calculateTotalPrice());
 
         btnLogout.setOnClickListener(v -> {
+            AuthSessionManager.clearSession(this);
             SharedPreferences prefs = getApplicationContext().getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
             prefs.edit().clear().apply();
             startActivity(new Intent(this, LoginActivity.class));
@@ -834,7 +835,7 @@ public class CustomerDashboard extends AppCompatActivity {
 
     private Map<String, String> buildAuthHeaders() {
         Map<String, String> headers = new HashMap<>();
-        String token = getSharedPreferences("fooddash_prefs", MODE_PRIVATE).getString("api_token", "");
+        String token = AuthSessionManager.getValidAccessTokenOrNull(this);
         if (!token.isEmpty()) headers.put("Authorization", "Bearer " + token);
         return headers;
     }

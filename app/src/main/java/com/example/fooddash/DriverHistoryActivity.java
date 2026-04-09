@@ -149,7 +149,7 @@ public class DriverHistoryActivity extends AppCompatActivity {
     }
 
     private String getApiToken() {
-        return getSharedPreferences("fooddash_prefs", MODE_PRIVATE).getString("api_token", "");
+        return AuthSessionManager.getValidAccessTokenOrNull(this);
     }
 
     private static class HistoryAdapter extends RecyclerView.Adapter<HistoryAdapter.ViewHolder> {

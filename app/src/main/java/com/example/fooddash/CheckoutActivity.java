@@ -128,7 +128,7 @@ public class CheckoutActivity extends AppCompatActivity {
     private void placeOrder() {
         SharedPreferences prefs = getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
         int userId = prefs.getInt("user_id", -1);
-        String token = prefs.getString("api_token", "");
+        String token = AuthSessionManager.getValidAccessTokenOrNull(this);
 
         if (userId <= 0 || TextUtils.isEmpty(token)) {
             Toast.makeText(this, "Please login again", Toast.LENGTH_SHORT).show();

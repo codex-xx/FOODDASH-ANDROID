@@ -29,4 +29,9 @@
     <string name="terms_dialog_content">By registering as a driver, you confirm that your information is accurate, your vehicle is roadworthy and clean, and you will follow delivery policies, safety rules, and customer service standards.</string>
     <string name="forgot_password">Forgot Password?</string>
     <string name="reset_password">Reset Password</string>
+    <string name="mfa_title">Multi-factor verification</string>
+    <string name="mfa_subtitle">Enter the 6-digit code sent to your email or authenticator app.</string>
+    <string name="mfa_code_hint">One-time code</string>
+    <string name="verify_mfa">Verify and continue</string>
+    <string name="password_policy_error">Password must be at least 8 characters and include uppercase, lowercase, and a number.</string>
 </resources>

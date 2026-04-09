@@ -114,6 +114,7 @@ public class DriverDashboard extends AppCompatActivity {
         });
 
         btnLogout.setOnClickListener(v -> {
+            AuthSessionManager.clearSession(this);
             SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
             prefs.edit().clear().apply();
             startActivity(new Intent(this, LoginActivity.class));
@@ -421,7 +422,7 @@ public class DriverDashboard extends AppCompatActivity {
 
     private Map<String, String> buildAuthHeaders() {
         Map<String, String> headers = new HashMap<>();
-        String token = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getString("api_token", "");
+        String token = AuthSessionManager.getValidAccessTokenOrNull(this);
         if (!TextUtils.isEmpty(token)) {
             headers.put("Authorization", "Bearer " + token);
         }
@@ -429,8 +430,7 @@ public class DriverDashboard extends AppCompatActivity {
     }
 
     private void checkDriverApprovalStatus() {
-        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        String apiToken = prefs.getString("api_token", "");
+        String apiToken = AuthSessionManager.getValidAccessTokenOrNull(this);
         if (apiToken.isEmpty()) return;
 
         JsonObjectRequest request = new JsonObjectRequest(

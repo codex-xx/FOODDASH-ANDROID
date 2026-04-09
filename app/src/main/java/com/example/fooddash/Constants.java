@@ -4,13 +4,17 @@ public class Constants {
     // IMPORTANT: Make sure this is the correct IP address for your XAMPP server.
     // Try using "10.0.2.2" if you are using the Android Emulator.
     // Use your actual IP (e.g., 192.168.1.7) if using a physical device.
-    public static final String IP_ADDRESS = "192.168.1.7"; 
+    public static final String IP_ADDRESS = "192.168.100.88";
 
     public static final String BASE_URL = "http://" + IP_ADDRESS + "/FoodDash/api/";
     public static final String URL_SEND_NOTIFICATION_EMAIL = BASE_URL + "send-notification-email";
     
     // Auth
     public static final String URL_LOGIN = BASE_URL + "login";
+    public static final String URL_REGISTER = BASE_URL + "register";
+    public static final String URL_MFA_VERIFY = BASE_URL + "mfa/verify";
+    public static final String URL_MFA_VERIFY_FALLBACK = BASE_URL + "verify-mfa";
+    public static final String PASSWORD_HASH_ALGORITHM = "argon2id";
 
     // Core order-flow endpoints (REST style)
     public static final String URL_RESTAURANTS = BASE_URL + "restaurants";

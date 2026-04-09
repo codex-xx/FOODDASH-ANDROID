@@ -29,7 +29,7 @@ public class LoginActivity extends AppCompatActivity {
     EditText emailEdit, passwordEdit;
     Button btnLogin, btnGoRegister;
     TextView forgotPassword;
-    String URL_LOGIN = Constants.BASE_URL + "login"; // Use the centralized URL
+    String URL_LOGIN = Constants.URL_LOGIN;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -45,12 +45,8 @@ public class LoginActivity extends AppCompatActivity {
         Intent intent = getIntent();
         if (intent != null) {
             String registeredEmail = intent.getStringExtra("email");
-            String registeredPassword = intent.getStringExtra("password");
             if (registeredEmail != null) {
                 emailEdit.setText(registeredEmail);
-            }
-            if (registeredPassword != null) {
-                passwordEdit.setText(registeredPassword);
             }
         }
 
@@ -109,21 +105,27 @@ public class LoginActivity extends AppCompatActivity {
                             }
                         }
 
-                        String apiToken = "";
-                        if (data != null) {
-                            apiToken = data.optString("token");
-                            if (apiToken.isEmpty()) {
-                                if (user != null) {
-                                    apiToken = user.optString("api_token");
-                                }
-                            }
+                        if (AuthSessionManager.isMfaRequired(response)) {
+                            Intent mfaIntent = new Intent(this, MfaVerificationActivity.class);
+                            mfaIntent.putExtra("email", email);
+                            mfaIntent.putExtra("role", role);
+                            mfaIntent.putExtra("mfa_challenge_token", AuthSessionManager.extractMfaChallengeToken(response));
+                            startActivity(mfaIntent);
+                            return;
                         }
+
+                        String apiToken = AuthSessionManager.extractAccessToken(response);
 
                         if (apiToken.isEmpty()) {
                             Log.e("LoginActivity", "API token not found in response: " + response.toString());
                             Toast.makeText(this, "Login failed: Could not retrieve API token.", Toast.LENGTH_LONG).show();
                             return;
                         }
+
+                        String refreshToken = AuthSessionManager.extractRefreshToken(response);
+                        String tokenType = AuthSessionManager.extractTokenType(response);
+                        Long expiresAt = AuthSessionManager.extractExpiresAtEpochSeconds(response, apiToken);
+                        AuthSessionManager.saveSession(this, apiToken, refreshToken, expiresAt, tokenType);
 
                         SharedPreferences prefs = getApplicationContext().getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
                         int userId = extractUserId(response, data, user);
@@ -144,7 +146,6 @@ public class LoginActivity extends AppCompatActivity {
                         );
 
                         prefs.edit()
-                            .putString("api_token", apiToken)
                             .putInt("user_id", userId)
                             .putString("user_role", role)
                             .putString("user_email", email)
