@@ -40,7 +40,6 @@ import com.android.volley.toolbox.JsonArrayRequest;
 import com.android.volley.toolbox.JsonObjectRequest;
 import com.android.volley.toolbox.Volley;
 import com.bumptech.glide.Glide;
-import com.google.android.material.card.MaterialCardView;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -55,9 +54,7 @@ import java.util.Map;
 
 public class CustomerDashboard extends AppCompatActivity {
 
-    private static final int PREVIEW_RESTAURANT_LIMIT = 3;
-    private static final int PREVIEW_ITEMS_PER_RESTAURANT = 2;
-    private static final int PREVIEW_TOTAL_ITEMS_LIMIT = 8;
+    private static final String TAG = "CustomerDashboard";
     private static final long SEARCH_DEBOUNCE_MS = 400L;
     private static final String SEARCH_REQUEST_TAG = "search_requests";
 
@@ -94,31 +91,52 @@ public class CustomerDashboard extends AppCompatActivity {
     private String pendingHighlightItemName;
     private boolean isSearchMode = false;
     private String lastSearchQuery = "";
-    private Runnable searchRunnable;
     private final Handler searchHandler = new Handler(Looper.getMainLooper());
     private final Handler pollingHandler = new Handler(Looper.getMainLooper());
     private static final long POLLING_INTERVAL_MS = 10000L;
-        private static final long ORDER_POLLING_INTERVAL_MS = 4000L;
+    private static final long ORDER_POLLING_INTERVAL_MS = 4000L;
     private SearchRestaurantAdapter searchRestaurantAdapter;
     private SearchMenuItemAdapter searchMenuItemAdapter;
     private final Map<String, CartEntry> globalCart = new LinkedHashMap<>();
-        private int activeOrderId = -1;
-        private String activeOrderStatus = "";
-        private final List<String> canonicalStatusFlow = Arrays.asList(
+    private int activeOrderId = -1;
+    private String activeOrderStatus = "";
+    
+    // Updated flow to include all possible states
+    private final List<String> canonicalStatusFlow = Arrays.asList(
             Constants.STATUS_PENDING,
             Constants.STATUS_ACCEPTED,
             Constants.STATUS_PREPARING,
             Constants.STATUS_READY,
             Constants.STATUS_ASSIGNED,
+            Constants.STATUS_ARRIVED_RESTAURANT,
+            Constants.STATUS_PICKED_UP,
             Constants.STATUS_ON_THE_WAY,
             Constants.STATUS_DELIVERED
-        );
+    );
 
-        private static final String ORDERS_ENDPOINT = Constants.URL_ORDERS;
-        private static final String ALL_RESTAURANTS_ENDPOINT = Constants.URL_GET_ALL_RESTAURANTS;
-        private static final String MENU_BY_RESTAURANT_ENDPOINT = Constants.URL_GET_MENU_BY_RESTAURANT;
-        private static final String LEGACY_MENU_ENDPOINT = Constants.URL_GET_MENU_LEGACY;
+    private static final String ORDERS_ENDPOINT = Constants.URL_ORDERS;
+    private static final String ALL_RESTAURANTS_ENDPOINT = Constants.URL_GET_ALL_RESTAURANTS;
+    private static final String MENU_BY_RESTAURANT_ENDPOINT = Constants.URL_GET_MENU_BY_RESTAURANT;
+    private static final String LEGACY_MENU_ENDPOINT = Constants.URL_GET_MENU_LEGACY;
     private static final String SEARCH_ENDPOINT = Constants.BASE_URL + "search.php";
+
+    private final Runnable menuPollingRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (!isSearchMode && restaurantId > 0) {
+                fetchMenu(false);
+            }
+            pollingHandler.postDelayed(this, POLLING_INTERVAL_MS);
+        }
+    };
+
+    private final Runnable orderPollingRunnable = new Runnable() {
+        @Override
+        public void run() {
+            fetchLatestCustomerOrder();
+            pollingHandler.postDelayed(this, ORDER_POLLING_INTERVAL_MS);
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -191,10 +209,8 @@ public class CustomerDashboard extends AppCompatActivity {
         vehicleRadioGroup.setOnCheckedChangeListener((group, checkedId) -> calculateTotalPrice());
 
         btnLogout.setOnClickListener(v -> {
-            // Clear session/token using Application Context
             SharedPreferences prefs = getApplicationContext().getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
             prefs.edit().clear().apply();
-
             startActivity(new Intent(this, LoginActivity.class));
             finish();
         });
@@ -205,30 +221,43 @@ public class CustomerDashboard extends AppCompatActivity {
         super.onResume();
         fetchRestaurants(true);
         startMenuPolling();
+        startOrderPolling();
+        fetchLatestCustomerOrder();
     }
 
     @Override
     protected void onPause() {
         super.onPause();
-        stopMenuPolling();
+        stopPolling();
         searchHandler.removeCallbacksAndMessages(null);
         requestQueue.cancelAll(SEARCH_REQUEST_TAG);
     }
 
     private void startMenuPolling() {
-        pollingHandler.postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                if (!isSearchMode && restaurantId > 0) {
-                    fetchMenu(false);
-                }
-                pollingHandler.postDelayed(this, POLLING_INTERVAL_MS);
-            }
-        }, POLLING_INTERVAL_MS);
+        pollingHandler.removeCallbacks(menuPollingRunnable);
+        pollingHandler.postDelayed(menuPollingRunnable, POLLING_INTERVAL_MS);
     }
 
-    private void stopMenuPolling() {
+    private void startOrderPolling() {
+        pollingHandler.removeCallbacks(orderPollingRunnable);
+        pollingHandler.postDelayed(orderPollingRunnable, ORDER_POLLING_INTERVAL_MS);
+    }
+
+    private void stopPolling() {
         pollingHandler.removeCallbacksAndMessages(null);
+    }
+
+    private void showEmpty(String message) {
+        if (emptyMessageTextView != null) {
+            emptyMessageTextView.setText(message);
+            emptyMessageTextView.setVisibility(View.VISIBLE);
+        }
+    }
+
+    private void hideEmpty() {
+        if (emptyMessageTextView != null) {
+            emptyMessageTextView.setVisibility(View.GONE);
+        }
     }
 
     private void setupDeliveryDefaults() {
@@ -237,57 +266,10 @@ public class CustomerDashboard extends AppCompatActivity {
         if (!TextUtils.isEmpty(savedAddress)) {
             deliveryAddressEditText.setText(savedAddress);
         }
-        renderOrderTimeline("", "");
-
-        // Keep the browse page clean by moving checkout/tracking to dedicated pages.
+        orderTrackingLayout.setVisibility(View.GONE);
         deliveryAddressEditText.setVisibility(View.GONE);
         vehicleRadioGroup.setVisibility(View.GONE);
         totalPriceTextView.setVisibility(View.GONE);
-        orderTrackingLayout.setVisibility(View.GONE);
-    }
-
-    private void startOrderPolling() {
-        pollingHandler.postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                fetchLatestCustomerOrder();
-                pollingHandler.postDelayed(this, ORDER_POLLING_INTERVAL_MS);
-            }
-        }, ORDER_POLLING_INTERVAL_MS);
-    }
-
-    private void stopOrderPolling() {
-        pollingHandler.removeCallbacksAndMessages(null);
-    }
-
-    private int getSelectedItemCount() {
-        int count = 0;
-        for (Product product : adapter.getSelectedProducts()) {
-            count += product.getQuantity();
-        }
-        return count;
-    }
-
-    private String suggestDeliveryTypeByBasketSize(int itemCount) {
-        if (itemCount <= 3) {
-            return Constants.DELIVERY_MOTORCYCLE;
-        }
-        if (itemCount <= 8) {
-            return Constants.DELIVERY_TRICYCLE;
-        }
-        return Constants.DELIVERY_CAB;
-    }
-
-    private void autoSelectVehicleForCartSize() {
-        int itemCount = getSelectedItemCount();
-        String suggestion = suggestDeliveryTypeByBasketSize(itemCount);
-        if (Constants.DELIVERY_MOTORCYCLE.equals(suggestion)) {
-            vehicleRadioGroup.check(R.id.radioMotorcycle);
-        } else if (Constants.DELIVERY_TRICYCLE.equals(suggestion)) {
-            vehicleRadioGroup.check(R.id.radioTricycle);
-        } else {
-            vehicleRadioGroup.check(R.id.radioCab);
-        }
     }
 
     private void setupSearchInput() {
@@ -304,13 +286,9 @@ public class CustomerDashboard extends AppCompatActivity {
 
         searchEditText.addTextChangedListener(new TextWatcher() {
             @Override
-            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
-            }
-
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
             @Override
-            public void onTextChanged(CharSequence s, int start, int before, int count) {
-            }
-
+            public void onTextChanged(CharSequence s, int start, int before, int count) {}
             @Override
             public void afterTextChanged(Editable s) {
                 scheduleSearch(s.toString().trim());
@@ -325,9 +303,7 @@ public class CustomerDashboard extends AppCompatActivity {
             exitSearchMode();
             return;
         }
-
-        searchRunnable = () -> executeSearch(query);
-        searchHandler.postDelayed(searchRunnable, SEARCH_DEBOUNCE_MS);
+        searchHandler.postDelayed(() -> executeSearch(query), SEARCH_DEBOUNCE_MS);
     }
 
     private void executeSearch(String query) {
@@ -348,79 +324,33 @@ public class CustomerDashboard extends AppCompatActivity {
                 searchUrl,
                 null,
                 response -> {
-                    if (!query.equals(lastSearchQuery)) {
-                        return;
-                    }
-
-                    JSONArray restaurantsArray = findArray(response,
-                            "restaurants",
-                            "restaurant_results",
-                            "restaurant",
-                            "data.restaurants",
-                            "data.restaurant_results");
-                    JSONArray menuItemsArray = findArray(response,
-                            "menu_items",
-                            "menuItems",
-                            "menus",
-                            "items",
-                            "products",
-                            "data.menu_items",
-                            "data.items",
-                            "data.products");
-
-                    applySearchResults(restaurantsArray, menuItemsArray);
+                    if (!query.equals(lastSearchQuery)) return;
+                    applySearchResults(findArray(response, "restaurants", "data.restaurants"), 
+                                     findArray(response, "menu_items", "data.menu_items"));
                 },
                 error -> {
-                    if (!query.equals(lastSearchQuery)) {
-                        return;
-                    }
-
+                    if (!query.equals(lastSearchQuery)) return;
                     loadingProgressBar.setVisibility(View.GONE);
-                    swipeRefreshLayout.setRefreshing(false);
-                    searchRestaurants.clear();
-                    searchMenuItems.clear();
-                    searchRestaurantAdapter.notifyDataSetChanged();
-                    searchMenuItemAdapter.notifyDataSetChanged();
-                    updateSearchSectionsVisibility();
                     searchNoResultsTextView.setVisibility(View.VISIBLE);
-                    Toast.makeText(CustomerDashboard.this, "Search failed", Toast.LENGTH_SHORT).show();
-                    Log.e("CustomerDashboard", "Search request failed", error);
                 }
         );
-
         searchRequest.setTag(SEARCH_REQUEST_TAG);
         requestQueue.add(searchRequest);
     }
 
     private JSONArray findArray(JSONObject source, String... keyPaths) {
-        if (source == null || keyPaths == null) {
-            return new JSONArray();
-        }
-
         for (String keyPath : keyPaths) {
-            if (TextUtils.isEmpty(keyPath)) {
-                continue;
-            }
-
-            String[] keys = keyPath.split("\\.");
             JSONObject current = source;
+            String[] keys = keyPath.split("\\.");
             for (int i = 0; i < keys.length - 1; i++) {
                 current = current.optJSONObject(keys[i]);
-                if (current == null) {
-                    break;
-                }
+                if (current == null) break;
             }
-
-            if (current == null) {
-                continue;
-            }
-
-            JSONArray array = current.optJSONArray(keys[keys.length - 1]);
-            if (array != null) {
-                return array;
+            if (current != null) {
+                JSONArray array = current.optJSONArray(keys[keys.length - 1]);
+                if (array != null) return array;
             }
         }
-
         return new JSONArray();
     }
 
@@ -430,57 +360,28 @@ public class CustomerDashboard extends AppCompatActivity {
 
         for (int i = 0; i < restaurantsArray.length(); i++) {
             JSONObject item = restaurantsArray.optJSONObject(i);
-            if (item == null) {
-                continue;
+            if (item != null) {
+                int id = item.optInt("id", item.optInt("restaurant_id", -1));
+                String name = item.optString("name", "Restaurant");
+                String imageUrl = normalizeImageUrl(item.optString("image_url", ""));
+                searchRestaurants.add(new SearchRestaurant(id, name, imageUrl));
             }
-
-            int id = item.optInt("id", item.optInt("restaurant_id", -1));
-            if (id <= 0) {
-                continue;
-            }
-
-            String name = item.optString("name", item.optString("restaurant_name", "Restaurant " + id));
-            String imageUrl = item.optString("image_url",
-                    item.optString("image",
-                            item.optString("image_path",
-                                    item.optString("logo", item.optString("restaurant_image", "")))));
-            searchRestaurants.add(new SearchRestaurant(id, name, normalizeImageUrl(imageUrl)));
         }
 
         for (int i = 0; i < menuItemsArray.length(); i++) {
             JSONObject item = menuItemsArray.optJSONObject(i);
-            if (item == null) {
-                continue;
+            if (item != null) {
+                int menuId = item.optInt("id", -1);
+                int resId = item.optInt("restaurant_id", -1);
+                String name = item.optString("name", "Item");
+                String resName = item.optString("restaurant_name", "");
+                double price = item.optDouble("price", 0.0);
+                String imageUrl = normalizeImageUrl(item.optString("image_url", ""));
+                searchMenuItems.add(new SearchMenuItem(menuId, name, resId, resName, price, imageUrl));
             }
-
-            int menuId = item.optInt("id", item.optInt("menu_id", -1));
-            int itemRestaurantId = item.optInt("restaurant_id", item.optInt("restaurantId", -1));
-            String itemName = item.optString("name", item.optString("food_name", item.optString("item_name", "Menu Item")));
-
-            JSONObject nestedRestaurant = item.optJSONObject("restaurant");
-            String itemRestaurantName = item.optString("restaurant_name", item.optString("restaurant", ""));
-            if (TextUtils.isEmpty(itemRestaurantName) && nestedRestaurant != null) {
-                itemRestaurantName = nestedRestaurant.optString("name", nestedRestaurant.optString("restaurant_name", ""));
-                if (itemRestaurantId <= 0) {
-                    itemRestaurantId = nestedRestaurant.optInt("id", nestedRestaurant.optInt("restaurant_id", -1));
-                }
-            }
-
-            double price = item.optDouble("price", item.optDouble("menu_price", 0.0));
-            String imageUrl = item.optString("image_url", item.optString("image", item.optString("image_path", "")));
-
-            searchMenuItems.add(new SearchMenuItem(
-                    menuId,
-                    itemName,
-                    itemRestaurantId,
-                    itemRestaurantName,
-                    price,
-                    normalizeImageUrl(imageUrl)
-            ));
         }
 
         loadingProgressBar.setVisibility(View.GONE);
-        swipeRefreshLayout.setRefreshing(false);
         searchRestaurantAdapter.notifyDataSetChanged();
         searchMenuItemAdapter.notifyDataSetChanged();
         updateSearchSectionsVisibility();
@@ -489,7 +390,6 @@ public class CustomerDashboard extends AppCompatActivity {
     private void updateSearchSectionsVisibility() {
         boolean hasRestaurants = !searchRestaurants.isEmpty();
         boolean hasMenuItems = !searchMenuItems.isEmpty();
-
         searchRestaurantsSectionTitle.setVisibility(hasRestaurants ? View.VISIBLE : View.GONE);
         searchRestaurantsRecyclerView.setVisibility(hasRestaurants ? View.VISIBLE : View.GONE);
         searchMenuSectionTitle.setVisibility(hasMenuItems ? View.VISIBLE : View.GONE);
@@ -498,10 +398,6 @@ public class CustomerDashboard extends AppCompatActivity {
     }
 
     private void enterSearchMode() {
-        if (isSearchMode) {
-            return;
-        }
-
         isSearchMode = true;
         productsRecyclerView.setVisibility(View.GONE);
         searchResultsScrollView.setVisibility(View.VISIBLE);
@@ -510,31 +406,13 @@ public class CustomerDashboard extends AppCompatActivity {
 
     private void exitSearchMode() {
         isSearchMode = false;
-        requestQueue.cancelAll(SEARCH_REQUEST_TAG);
-        loadingProgressBar.setVisibility(View.GONE);
         searchResultsScrollView.setVisibility(View.GONE);
         productsRecyclerView.setVisibility(View.VISIBLE);
-        searchRestaurants.clear();
-        searchMenuItems.clear();
-        searchRestaurantAdapter.notifyDataSetChanged();
-        searchMenuItemAdapter.notifyDataSetChanged();
-        searchRestaurantsSectionTitle.setVisibility(View.GONE);
-        searchMenuSectionTitle.setVisibility(View.GONE);
-        searchNoResultsTextView.setVisibility(View.GONE);
-
-        if (restaurantId > 0) {
-            fetchMenu(false);
-        } else {
-            fetchMixedMenuPreview(false);
-        }
+        if (restaurantId > 0) fetchMenu(false);
+        else fetchMixedMenuPreview(false);
     }
 
     private void navigateToRestaurantFromSearch(int targetRestaurantId) {
-        if (targetRestaurantId <= 0) {
-            Toast.makeText(this, "Restaurant is unavailable", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
         int targetPosition = -1;
         for (int i = 0; i < restaurantList.size(); i++) {
             if (restaurantList.get(i).getId() == targetRestaurantId) {
@@ -542,33 +420,21 @@ public class CustomerDashboard extends AppCompatActivity {
                 break;
             }
         }
-
         if (targetPosition >= 0) {
             selectRestaurant(targetPosition, true);
-            restaurantsRecyclerView.smoothScrollToPosition(targetPosition);
-            return;
+        } else {
+            restaurantId = targetRestaurantId;
+            fetchMenu(true);
         }
-
-        Intent intent = new Intent(this, CustomerDashboard.class);
-        intent.putExtra("restaurant_id", targetRestaurantId);
-        startActivity(intent);
     }
 
     private void navigateToMenuItemFromSearch(SearchMenuItem item) {
-        if (item.restaurantId <= 0) {
-            Toast.makeText(this, "Restaurant for this item is unavailable", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
         pendingHighlightItemName = item.name;
         navigateToRestaurantFromSearch(item.restaurantId);
     }
 
     private void highlightPendingMenuItemIfNeeded() {
-        if (TextUtils.isEmpty(pendingHighlightItemName)) {
-            return;
-        }
-
+        if (TextUtils.isEmpty(pendingHighlightItemName)) return;
         int matchPosition = -1;
         for (int i = 0; i < productList.size(); i++) {
             if (pendingHighlightItemName.equalsIgnoreCase(productList.get(i).getName())) {
@@ -576,140 +442,74 @@ public class CustomerDashboard extends AppCompatActivity {
                 break;
             }
         }
-
-        if (matchPosition < 0) {
-            pendingHighlightItemName = null;
-            return;
-        }
-
-        highlightedProductPosition = matchPosition;
-        adapter.notifyItemChanged(matchPosition);
-        productsRecyclerView.smoothScrollToPosition(matchPosition);
-        final int highlightedPosition = matchPosition;
-        pendingHighlightItemName = null;
-
-        productsRecyclerView.postDelayed(() -> {
-            if (highlightedProductPosition == highlightedPosition) {
+        if (matchPosition >= 0) {
+            highlightedProductPosition = matchPosition;
+            adapter.notifyItemChanged(matchPosition);
+            productsRecyclerView.smoothScrollToPosition(matchPosition);
+            int pos = matchPosition;
+            new Handler(Looper.getMainLooper()).postDelayed(() -> {
                 highlightedProductPosition = -1;
-                adapter.notifyItemChanged(highlightedPosition);
-            }
-        }, 1800L);
+                adapter.notifyItemChanged(pos);
+            }, 2000);
+        }
+        pendingHighlightItemName = null;
     }
 
     private void fetchRestaurants(boolean showBlockingLoader) {
-        if (showBlockingLoader) {
-            loadingProgressBar.setVisibility(View.VISIBLE);
-            emptyMessageTextView.setVisibility(View.GONE);
-        }
-
-        JsonArrayRequest arrayRequest = new JsonArrayRequest(
-                Request.Method.GET,
-                ALL_RESTAURANTS_ENDPOINT,
-                null,
-                this::applyRestaurantData,
+        if (showBlockingLoader) loadingProgressBar.setVisibility(View.VISIBLE);
+        JsonObjectRequest request = new JsonObjectRequest(Request.Method.GET, ALL_RESTAURANTS_ENDPOINT, null,
+                response -> {
+                    JSONArray restaurants = response.optJSONArray("restaurants");
+                    if (restaurants == null) restaurants = response.optJSONArray("data");
+                    applyRestaurantData(restaurants != null ? restaurants : new JSONArray());
+                },
                 error -> {
                     loadingProgressBar.setVisibility(View.GONE);
                     swipeRefreshLayout.setRefreshing(false);
-                    if (restaurantList.isEmpty()) {
-                        showEmpty("No partner restaurants available.");
-                    }
-                    Toast.makeText(CustomerDashboard.this, "Failed to fetch restaurants", Toast.LENGTH_SHORT).show();
-                    Log.e("CustomerDashboard", "Restaurants fetch failed", error);
+                    showEmpty("Failed to load restaurants");
                 }
         );
-
-        JsonObjectRequest objectRequest = new JsonObjectRequest(
-                Request.Method.GET,
-                ALL_RESTAURANTS_ENDPOINT,
-                null,
-                response -> {
-                    Log.d("CustomerDashboard", "Restaurants response: " + response);
-                    JSONArray restaurants = response.optJSONArray("restaurants");
-                    if (restaurants == null) {
-                        restaurants = response.optJSONArray("data");
-                    }
-                    if (restaurants == null) {
-                        restaurants = response.optJSONArray("items");
-                    }
-                    if (restaurants == null) {
-                        restaurants = new JSONArray();
-                    }
-                    applyRestaurantData(restaurants);
-                },
-                error -> requestQueue.add(arrayRequest)
-        );
-
-        requestQueue.add(objectRequest);
+        requestQueue.add(request);
     }
 
     private void applyRestaurantData(JSONArray restaurants) {
-        int previousRestaurantId = restaurantId;
         restaurantList.clear();
-
         for (int i = 0; i < restaurants.length(); i++) {
-            JSONObject restaurant = restaurants.optJSONObject(i);
-            if (restaurant == null) {
-                continue;
+            JSONObject res = restaurants.optJSONObject(i);
+            if (res != null) {
+                int id = res.optInt("id", res.optInt("restaurant_id", -1));
+                String name = res.optString("name", "Restaurant");
+                restaurantList.add(new Restaurant(id, name));
             }
-
-            int id = restaurant.optInt("id", restaurant.optInt("restaurant_id", -1));
-            if (id <= 0) {
-                continue;
-            }
-
-            String name = restaurant.optString("name", restaurant.optString("restaurant_name", "Restaurant " + id));
-            restaurantList.add(new Restaurant(id, name));
         }
-
         loadingProgressBar.setVisibility(View.GONE);
         swipeRefreshLayout.setRefreshing(false);
         restaurantAdapter.notifyDataSetChanged();
-
+        
         if (restaurantList.isEmpty()) {
-            restaurantId = -1;
-            selectedRestaurantPosition = -1;
-            productList.clear();
-            adapter.notifyDataSetChanged();
-            calculateTotalPrice();
-            updateOrderControlsState();
-            selectedRestaurantTextView.setText("Mixed picks from partner restaurants");
-            showEmpty("No partner restaurants available.");
-            return;
+            showEmpty("No restaurants available");
+        } else {
+            hideEmpty();
         }
 
-        int selectedPosition = -1;
-        for (int i = 0; i < restaurantList.size(); i++) {
-            if (restaurantList.get(i).getId() == previousRestaurantId) {
-                selectedPosition = i;
-                break;
+        if (restaurantId > 0) {
+            for (int i = 0; i < restaurantList.size(); i++) {
+                if (restaurantList.get(i).id == restaurantId) {
+                    selectedRestaurantPosition = i;
+                    break;
+                }
             }
         }
-
-        if (selectedPosition >= 0) {
-            selectRestaurant(selectedPosition, true);
-        } else {
-            restaurantId = -1;
-            selectedRestaurantPosition = -1;
-            restaurantAdapter.notifyDataSetChanged();
-            fetchMixedMenuPreview(true);
-        }
+        if (restaurantId <= 0) fetchMixedMenuPreview(true);
+        else fetchMenu(true);
     }
 
     private void selectRestaurant(int position, boolean fetchMenuNow) {
-        if (position < 0 || position >= restaurantList.size()) {
-            return;
-        }
-
         selectedRestaurantPosition = position;
-        Restaurant selectedRestaurant = restaurantList.get(position);
-        restaurantId = selectedRestaurant.getId();
-        selectedRestaurantTextView.setText("Menu: " + selectedRestaurant.getName());
+        restaurantId = restaurantList.get(position).getId();
+        selectedRestaurantTextView.setText("Menu: " + restaurantList.get(position).getName());
         restaurantAdapter.notifyDataSetChanged();
-        updateOrderControlsState();
-
-        if (fetchMenuNow) {
-            fetchMenu(true);
-        }
+        if (fetchMenuNow) fetchMenu(true);
     }
 
     private void clearRestaurantSelection(boolean fetchMenuNow) {
@@ -717,11 +517,7 @@ public class CustomerDashboard extends AppCompatActivity {
         selectedRestaurantPosition = -1;
         selectedRestaurantTextView.setText("Mixed picks from partner restaurants");
         restaurantAdapter.notifyDataSetChanged();
-        updateOrderControlsState();
-
-        if (fetchMenuNow) {
-            fetchMixedMenuPreview(true);
-        }
+        if (fetchMenuNow) fetchMixedMenuPreview(true);
     }
 
     private boolean isHomepageMode() {
@@ -730,40 +526,30 @@ public class CustomerDashboard extends AppCompatActivity {
 
     private void updateOrderControlsState() {
         btnPlaceOrder.setVisibility(View.VISIBLE);
-        vehicleRadioGroup.setVisibility(View.GONE);
-        totalPriceTextView.setVisibility(View.GONE);
-
         updateCartButtonState();
-
-        adapter.notifyDataSetChanged();
     }
 
     private void openCartPage() {
-        List<CartEntry> selectedProducts = getGlobalCartItems();
-        if (selectedProducts.isEmpty()) {
-            Toast.makeText(this, "Please add at least one item to cart", Toast.LENGTH_SHORT).show();
+        List<CartEntry> items = getGlobalCartItems();
+        if (items.isEmpty()) {
+            Toast.makeText(this, "Cart is empty", Toast.LENGTH_SHORT).show();
             return;
         }
-
-        JSONArray itemsArray = new JSONArray();
-        for (CartEntry product : selectedProducts) {
-            JSONObject item = new JSONObject();
+        JSONArray array = new JSONArray();
+        for (CartEntry e : items) {
+            JSONObject obj = new JSONObject();
             try {
-                item.put("menu_item_id", product.getId());
-                item.put("name", product.getName());
-                item.put("quantity", product.getQuantity());
-                item.put("price", product.getPrice());
-                item.put("restaurant_id", product.getRestaurantId());
-                item.put("restaurant_name", product.getRestaurantName());
-            } catch (Exception ignored) {
-            }
-            itemsArray.put(item);
+                obj.put("menu_item_id", e.id);
+                obj.put("name", e.name);
+                obj.put("quantity", e.quantity);
+                obj.put("price", e.price);
+                obj.put("restaurant_id", e.restaurantId);
+                obj.put("restaurant_name", e.restaurantName);
+                array.put(obj);
+            } catch (Exception ignored) {}
         }
-
         Intent intent = new Intent(this, CartActivity.class);
-        intent.putExtra("restaurant_id", restaurantId);
-        intent.putExtra("cart_items_json", itemsArray.toString());
-        intent.putExtra("subtotal", calculateGlobalCartTotal());
+        intent.putExtra("cart_items_json", array.toString());
         startActivity(intent);
     }
 
@@ -772,790 +558,328 @@ public class CustomerDashboard extends AppCompatActivity {
     }
 
     private void updateCartButtonState() {
-        int itemCount = getGlobalCartItemCount();
-        btnPlaceOrder.setText("Cart (" + itemCount + ")");
+        btnPlaceOrder.setText("Cart (" + getGlobalCartItemCount() + ")");
     }
 
     private int getGlobalCartItemCount() {
-        int count = 0;
-        for (CartEntry entry : globalCart.values()) {
-            count += entry.getQuantity();
+        int c = 0;
+        for (CartEntry e : globalCart.values()) c += e.quantity;
+        return c;
+    }
+
+    private void syncProductWithGlobalCart(Product product, int targetResId) {
+        String key = "res:" + targetResId + ":id:" + product.getId();
+        if (product.quantity <= 0) globalCart.remove(key);
+        else {
+            String resName = "";
+            if (selectedRestaurantPosition >= 0) resName = restaurantList.get(selectedRestaurantPosition).getName();
+            globalCart.put(key, new CartEntry(targetResId, resName, product.id, product.name, product.price, product.quantity));
         }
-        return count;
-    }
-
-    private double calculateGlobalCartTotal() {
-        double total = 0;
-        for (CartEntry entry : globalCart.values()) {
-            total += entry.getPrice() * entry.getQuantity();
-        }
-        return total;
-    }
-
-    private String buildCartKey(int targetRestaurantId, int productId, String productName) {
-        String base = buildProductKey(productId, productName);
-        return "restaurant:" + targetRestaurantId + ":" + base;
-    }
-
-    private String getCurrentRestaurantName() {
-        if (selectedRestaurantPosition >= 0 && selectedRestaurantPosition < restaurantList.size()) {
-            return restaurantList.get(selectedRestaurantPosition).getName();
-        }
-        return "Restaurant";
-    }
-
-    private int getQuantityFromGlobalCart(Product product, int targetRestaurantId) {
-        CartEntry entry = globalCart.get(buildCartKey(targetRestaurantId, product.getId(), product.getName()));
-        return entry != null ? entry.getQuantity() : 0;
-    }
-
-    private void syncProductWithGlobalCart(Product product, int targetRestaurantId) {
-        String key = buildCartKey(targetRestaurantId, product.getId(), product.getName());
-        if (product.getQuantity() <= 0) {
-            globalCart.remove(key);
-            saveGlobalCart();
-            updateCartButtonState();
-            return;
-        }
-
-        CartEntry entry = new CartEntry(
-                targetRestaurantId,
-                getCurrentRestaurantName(),
-                product.getId(),
-                product.getName(),
-                product.getPrice(),
-                product.getQuantity()
-        );
-        globalCart.put(key, entry);
         saveGlobalCart();
         updateCartButtonState();
     }
 
     private void loadGlobalCart() {
-        globalCart.clear();
-        SharedPreferences prefs = getApplicationContext().getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
-        String raw = prefs.getString("global_cart_json", "[]");
+        SharedPreferences prefs = getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
         try {
-            JSONArray array = new JSONArray(raw);
+            JSONArray array = new JSONArray(prefs.getString("global_cart_json", "[]"));
             for (int i = 0; i < array.length(); i++) {
-                JSONObject item = array.optJSONObject(i);
-                if (item == null) {
-                    continue;
-                }
-
-                CartEntry entry = new CartEntry(
-                        item.optInt("restaurant_id", -1),
-                        item.optString("restaurant_name", "Restaurant"),
-                        item.optInt("menu_item_id", -1),
-                        item.optString("name", "Item"),
-                        item.optDouble("price", 0.0),
-                        item.optInt("quantity", 0)
-                );
-
-                if (entry.getQuantity() > 0) {
-                    globalCart.put(buildCartKey(entry.getRestaurantId(), entry.getId(), entry.getName()), entry);
+                JSONObject obj = array.optJSONObject(i);
+                if (obj != null) {
+                    CartEntry e = new CartEntry(obj.optInt("restaurant_id"), obj.optString("restaurant_name"), 
+                                              obj.optInt("menu_item_id"), obj.optString("name"), 
+                                              obj.optDouble("price"), obj.optInt("quantity"));
+                    globalCart.put("res:" + e.restaurantId + ":id:" + e.id, e);
                 }
             }
-        } catch (Exception ignored) {
-        }
+        } catch (Exception ignored) {}
     }
 
     private void saveGlobalCart() {
         JSONArray array = new JSONArray();
-        for (CartEntry entry : globalCart.values()) {
-            JSONObject item = new JSONObject();
+        for (CartEntry e : globalCart.values()) {
+            JSONObject obj = new JSONObject();
             try {
-                item.put("restaurant_id", entry.getRestaurantId());
-                item.put("restaurant_name", entry.getRestaurantName());
-                item.put("menu_item_id", entry.getId());
-                item.put("name", entry.getName());
-                item.put("price", entry.getPrice());
-                item.put("quantity", entry.getQuantity());
-            } catch (Exception ignored) {
-            }
-            array.put(item);
+                obj.put("restaurant_id", e.restaurantId);
+                obj.put("restaurant_name", e.restaurantName);
+                obj.put("menu_item_id", e.id);
+                obj.put("name", e.name);
+                obj.put("price", e.price);
+                obj.put("quantity", e.quantity);
+                array.put(obj);
+            } catch (Exception ignored) {}
         }
-
-        SharedPreferences prefs = getApplicationContext().getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
-        prefs.edit().putString("global_cart_json", array.toString()).apply();
+        getSharedPreferences("fooddash_prefs", MODE_PRIVATE).edit().putString("global_cart_json", array.toString()).apply();
     }
 
     private void fetchMixedMenuPreview(boolean showBlockingLoader) {
-        if (restaurantList.isEmpty()) {
-            loadingProgressBar.setVisibility(View.GONE);
-            swipeRefreshLayout.setRefreshing(false);
-            showEmpty("No partner restaurants available.");
-            return;
-        }
-
-        if (showBlockingLoader) {
-            loadingProgressBar.setVisibility(View.VISIBLE);
-            emptyMessageTextView.setVisibility(View.GONE);
-        }
-
-        selectedRestaurantTextView.setText("Mixed picks from partner restaurants");
-
-        int restaurantCount = Math.min(PREVIEW_RESTAURANT_LIMIT, restaurantList.size());
-        List<Product> mixedProducts = new ArrayList<>();
-        final int[] pendingRequests = {restaurantCount};
-
-        for (int i = 0; i < restaurantCount; i++) {
-            Restaurant restaurant = restaurantList.get(i);
-            requestMenuArrayForRestaurant(
-                    restaurant.getId(),
-                    menus -> {
-                        addPreviewProducts(mixedProducts, menus, restaurant.getName());
-                        pendingRequests[0]--;
-                        if (pendingRequests[0] == 0) {
-                            applyMixedPreviewData(mixedProducts);
-                        }
-                    },
-                    error -> {
-                        Log.e("CustomerDashboard", "Preview fetch failed for restaurant " + restaurant.getId(), error);
-                        pendingRequests[0]--;
-                        if (pendingRequests[0] == 0) {
-                            applyMixedPreviewData(mixedProducts);
-                        }
-                    }
-            );
-        }
-    }
-
-    private void applyMixedPreviewData(List<Product> mixedProducts) {
+        if (showBlockingLoader) loadingProgressBar.setVisibility(View.VISIBLE);
         productList.clear();
-        productList.addAll(mixedProducts);
-
-        loadingProgressBar.setVisibility(View.GONE);
-        swipeRefreshLayout.setRefreshing(false);
         adapter.notifyDataSetChanged();
-        calculateTotalPrice();
-        updateOrderControlsState();
-
-        if (productList.isEmpty()) {
-            showEmpty("No menu available right now.");
+        // Just a simple way to load some items
+        if (!restaurantList.isEmpty()) {
+            fetchMenuForPreview(restaurantList.get(0).id, restaurantList.get(0).name);
         } else {
-            emptyMessageTextView.setVisibility(View.GONE);
+            loadingProgressBar.setVisibility(View.GONE);
         }
     }
 
-    private void addPreviewProducts(List<Product> destination, JSONArray menus, String restaurantName) {
-        int addedForRestaurant = 0;
-        for (int i = 0; i < menus.length(); i++) {
-            if (destination.size() >= PREVIEW_TOTAL_ITEMS_LIMIT || addedForRestaurant >= PREVIEW_ITEMS_PER_RESTAURANT) {
-                break;
+    private void fetchMenuForPreview(int resId, String resName) {
+        requestMenuArrayForRestaurant(resId, response -> {
+            for (int i = 0; i < Math.min(response.length(), 6); i++) {
+                JSONObject obj = response.optJSONObject(i);
+                if (obj != null) productList.add(parseProductFromJson(obj, resName, true));
             }
-
-            JSONObject item = menus.optJSONObject(i);
-            if (item == null) {
-                continue;
-            }
-
-            destination.add(parseProductFromJson(item, restaurantName, true));
-            addedForRestaurant++;
-        }
+            loadingProgressBar.setVisibility(View.GONE);
+            adapter.notifyDataSetChanged();
+            if (productList.isEmpty()) showEmpty("No featured items available");
+            else hideEmpty();
+        }, error -> {
+            loadingProgressBar.setVisibility(View.GONE);
+            showEmpty("Failed to load featured items");
+        });
     }
 
     private void fetchMenu(boolean showBlockingLoader) {
-        if (restaurantId <= 0) {
+        if (showBlockingLoader) loadingProgressBar.setVisibility(View.VISIBLE);
+        requestMenuArrayForRestaurant(restaurantId, response -> {
+            productList.clear();
+            for (int i = 0; i < response.length(); i++) {
+                JSONObject obj = response.optJSONObject(i);
+                if (obj != null) {
+                    Product p = parseProductFromJson(obj, null, false);
+                    CartEntry ce = globalCart.get("res:" + restaurantId + ":id:" + p.id);
+                    if (ce != null) p.quantity = ce.quantity;
+                    productList.add(p);
+                }
+            }
             loadingProgressBar.setVisibility(View.GONE);
             swipeRefreshLayout.setRefreshing(false);
-            showEmpty("Tap a restaurant to view the full menu.");
-            return;
-        }
+            adapter.notifyDataSetChanged();
+            highlightPendingMenuItemIfNeeded();
 
-        if (showBlockingLoader) {
-            loadingProgressBar.setVisibility(View.VISIBLE);
-            emptyMessageTextView.setVisibility(View.GONE);
-        }
-
-        Response.ErrorListener errorListener = error -> {
+            if (productList.isEmpty()) showEmpty("No menu items available for this restaurant");
+            else hideEmpty();
+        }, error -> {
             loadingProgressBar.setVisibility(View.GONE);
             swipeRefreshLayout.setRefreshing(false);
-            if (productList.isEmpty()) {
-                showEmpty("No menu available right now.");
-            }
-            String errorMessage = "Failed to fetch menu";
-            if (error.networkResponse != null) {
-                errorMessage = "Failed to fetch menu (" + error.networkResponse.statusCode + ")";
-            }
-            Toast.makeText(CustomerDashboard.this, errorMessage, Toast.LENGTH_SHORT).show();
-            Log.e("CustomerDashboard", "Menu fetch failed", error);
-        };
-
-        requestMenuArrayForRestaurant(restaurantId, this::applyMenuData, errorListener);
+            showEmpty("Failed to load menu");
+        });
     }
 
-    private void requestMenuArrayForRestaurant(int targetRestaurantId, Response.Listener<JSONArray> successListener, Response.ErrorListener errorListener) {
-        String menuUrl = MENU_BY_RESTAURANT_ENDPOINT + "?restaurant_id=" + targetRestaurantId;
-        String legacyMenuUrl = LEGACY_MENU_ENDPOINT + "?restaurant_id=" + targetRestaurantId;
-
-        JsonArrayRequest legacyArrayRequest = new JsonArrayRequest(
-                Request.Method.GET,
-                legacyMenuUrl,
-                null,
-                successListener,
-                errorListener
-        );
-
-        JsonArrayRequest arrayRequest = new JsonArrayRequest(
-                Request.Method.GET,
-                menuUrl,
-                null,
-                successListener,
-                error -> requestQueue.add(legacyArrayRequest)
-        );
-
-        JsonObjectRequest objectRequest = new JsonObjectRequest(
-                Request.Method.GET,
-                menuUrl,
-                null,
+    private void requestMenuArrayForRestaurant(int resId, Response.Listener<JSONArray> success, Response.ErrorListener error) {
+        String url = MENU_BY_RESTAURANT_ENDPOINT + "?restaurant_id=" + resId;
+        JsonObjectRequest req = new JsonObjectRequest(Request.Method.GET, url, null,
                 response -> {
-                    Log.d("CustomerDashboard", "Menu response: " + response);
                     JSONArray menus = response.optJSONArray("menus");
-                    if (menus == null) {
-                        menus = response.optJSONArray("data");
-                    }
-                    if (menus == null) {
-                        menus = response.optJSONArray("items");
-                    }
-                    if (menus == null) {
-                        JSONObject restaurant = response.optJSONObject("restaurant");
-                        if (restaurant != null) {
-                            menus = restaurant.optJSONArray("menus");
-                        }
-                    }
-                    if (menus == null) {
-                        menus = new JSONArray();
-                    }
-                    successListener.onResponse(menus);
+                    if (menus == null) menus = response.optJSONArray("data");
+                    success.onResponse(menus != null ? menus : new JSONArray());
                 },
-                error -> requestQueue.add(arrayRequest)
+                e -> {
+                    JsonArrayRequest legacy = new JsonArrayRequest(Request.Method.GET, LEGACY_MENU_ENDPOINT + "?restaurant_id=" + resId, null, success, error);
+                    requestQueue.add(legacy);
+                }
         );
-
-        requestQueue.add(objectRequest);
+        requestQueue.add(req);
     }
 
     private void fetchLatestCustomerOrder() {
-        SharedPreferences prefs = getApplicationContext().getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
+        SharedPreferences prefs = getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
         int userId = prefs.getInt("user_id", -1);
-        if (userId <= 0) {
-            return;
-        }
+        if (userId <= 0) return;
 
-        String url = ORDERS_ENDPOINT + "/" + userId;
-        JsonObjectRequest request = new JsonObjectRequest(
-                Request.Method.GET,
-                url,
-                null,
+        String url = Constants.URL_ORDERS + "/" + userId;
+        JsonObjectRequest req = new JsonObjectRequest(Request.Method.GET, url, null,
                 response -> {
-                    JSONObject latestOrder = findLatestOrder(response);
-                    applyOrderTracking(latestOrder);
+                    JSONArray orders = extractOrdersFromResponse(response);
+                    applyOrderTracking(findActiveOrderInList(orders));
                 },
-                error -> fetchLegacyCustomerOrders(userId)
+                error -> fetchLatestCustomerOrderLegacy(userId)
         ) {
             @Override
             public Map<String, String> getHeaders() {
                 return buildAuthHeaders();
             }
         };
-
-        requestQueue.add(request);
+        requestQueue.add(req);
     }
 
-    private void fetchLegacyCustomerOrders(int userId) {
+    private void fetchLatestCustomerOrderLegacy(int userId) {
         String url = Constants.URL_GET_ORDERS_LEGACY + "?user_id=" + userId;
-        JsonObjectRequest request = new JsonObjectRequest(
-                Request.Method.GET,
-                url,
-                null,
-                response -> applyOrderTracking(findLatestOrder(response)),
-                error -> Log.d("CustomerDashboard", "No active customer order from legacy endpoint")
-        ) {
+        JsonObjectRequest legacy = new JsonObjectRequest(Request.Method.GET, url, null,
+                response -> {
+                    JSONArray orders = extractOrdersFromResponse(response);
+                    applyOrderTracking(findActiveOrderInList(orders));
+                }, e -> {}) {
             @Override
             public Map<String, String> getHeaders() {
                 return buildAuthHeaders();
             }
         };
-
-        requestQueue.add(request);
+        requestQueue.add(legacy);
     }
 
-    private JSONObject findLatestOrder(JSONObject response) {
-        if (response == null) {
-            return null;
+    private JSONArray extractOrdersFromResponse(JSONObject response) {
+        if (response == null) return new JSONArray();
+        JSONArray orders = response.optJSONArray("orders");
+        if (orders == null) orders = response.optJSONArray("data");
+        if (orders == null) {
+             JSONObject data = response.optJSONObject("data");
+             if (data != null) orders = data.optJSONArray("orders");
         }
-
-        JSONObject directOrder = response.optJSONObject("order");
-        if (directOrder != null) {
-            return directOrder;
+        if (orders == null && response.has("items")) {
+            // Some backends might return a single object or different key
+            orders = new JSONArray();
+            orders.put(response);
         }
+        return orders != null ? orders : new JSONArray();
+    }
 
-        JSONArray candidates = response.optJSONArray("orders");
-        if (candidates == null) {
-            JSONObject data = response.optJSONObject("data");
-            if (data != null) {
-                candidates = data.optJSONArray("orders");
+    private JSONObject findActiveOrderInList(JSONArray orders) {
+        if (orders == null || orders.length() == 0) return null;
+        
+        // Strategy: find the newest order that is NOT delivered.
+        for (int i = 0; i < orders.length(); i++) {
+            JSONObject order = orders.optJSONObject(i);
+            if (order != null) {
+                String status = normalizeStatus(order.optString("status", ""));
+                if (!status.equals(Constants.STATUS_DELIVERED)) {
+                    return order;
+                }
             }
         }
-        if (candidates == null) {
-            candidates = response.optJSONArray("data");
-        }
-
-        if (candidates == null || candidates.length() == 0) {
-            return null;
-        }
-
-        JSONObject latest = candidates.optJSONObject(0);
-        for (int i = 0; i < candidates.length(); i++) {
-            JSONObject item = candidates.optJSONObject(i);
-            if (item == null) {
-                continue;
-            }
-            String status = normalizeStatus(item.optString("status", ""));
-            if (!Constants.STATUS_DELIVERED.equals(status)) {
-                latest = item;
-                break;
-            }
-        }
-        return latest;
+        // If all are delivered, return the most recent one (index 0)
+        return orders.optJSONObject(0);
     }
 
     private void applyOrderTracking(JSONObject order) {
         if (order == null) {
-            activeOrderId = -1;
-            activeOrderStatus = "";
-            renderOrderTimeline("", "");
-            return;
-        }
-
-        activeOrderId = order.optInt("id", order.optInt("order_id", -1));
-        activeOrderStatus = normalizeStatus(order.optString("status", Constants.STATUS_PENDING));
-
-        String location = firstNonEmpty(
-                order.optString("driver_location", ""),
-                order.optString("current_location", ""),
-                order.optString("driver_latlng", "")
-        );
-
-        JSONObject driver = order.optJSONObject("driver");
-        if (driver != null && TextUtils.isEmpty(location)) {
-            location = firstNonEmpty(
-                    driver.optString("location", ""),
-                    driver.optString("last_known_location", ""),
-                    driver.optString("lat_lng", "")
-            );
-        }
-
-        renderOrderTimeline(activeOrderStatus, location);
-    }
-
-    private void renderOrderTimeline(String currentStatus, String driverLocation) {
-        if (TextUtils.isEmpty(currentStatus)) {
             orderTrackingLayout.setVisibility(View.GONE);
-            orderStatusTimelineTextView.setText("No active order");
-            driverLocationTextView.setText("Driver location: waiting assignment");
             return;
         }
+        activeOrderId = order.optInt("id", order.optInt("order_id", -1));
+        activeOrderStatus = normalizeStatus(order.optString("status", "pending"));
+        
+        renderOrderTimeline(activeOrderStatus, order.optString("driver_location", ""));
+    }
 
+    private void renderOrderTimeline(String status, String location) {
         orderTrackingLayout.setVisibility(View.VISIBLE);
-        StringBuilder builder = new StringBuilder();
+        StringBuilder sb = new StringBuilder();
+        int currentIdx = canonicalStatusFlow.indexOf(status);
+        
         for (int i = 0; i < canonicalStatusFlow.size(); i++) {
-            String step = canonicalStatusFlow.get(i);
-            boolean reached = canonicalStatusFlow.indexOf(currentStatus) >= i;
-            builder.append(reached ? "[x] " : "[ ] ").append(step);
-            if (i < canonicalStatusFlow.size() - 1) {
-                builder.append("\n");
+            String stepStatus = canonicalStatusFlow.get(i);
+            String prefix;
+            if (currentIdx > i) {
+                prefix = "✓ "; 
+            } else if (currentIdx == i) {
+                prefix = "▶ "; 
+            } else {
+                prefix = "○ "; 
             }
+            sb.append(prefix).append(getFriendlyStatus(stepStatus));
+            if (i < canonicalStatusFlow.size() - 1) sb.append("\n");
         }
-        orderStatusTimelineTextView.setText(builder.toString());
-
-        if (TextUtils.isEmpty(driverLocation)) {
-            driverLocationTextView.setText("Driver location: updating from backend...");
+        orderStatusTimelineTextView.setText(sb.toString());
+        
+        String friendlyStatus = getFriendlyStatus(status);
+        String subText = "Order #" + activeOrderId + ": " + friendlyStatus;
+        
+        if (!location.isEmpty() && !location.equals("null") && !location.equals("Waiting")) {
+            subText += "\nDriver Update: " + location;
         } else {
-            driverLocationTextView.setText("Driver location: " + driverLocation);
-        }
-    }
-
-    private String normalizeStatus(String rawStatus) {
-        String status = rawStatus == null ? "" : rawStatus.trim();
-        if (status.isEmpty()) {
-            return Constants.STATUS_PENDING;
-        }
-
-        String normalized = status.toLowerCase(Locale.ROOT);
-        if (normalized.contains("accepted")) return Constants.STATUS_ACCEPTED;
-        if (normalized.contains("prepar")) return Constants.STATUS_PREPARING;
-        if (normalized.contains("ready")) return Constants.STATUS_READY;
-        if (normalized.contains("assigned")) return Constants.STATUS_ASSIGNED;
-        if (normalized.contains("way") || normalized.contains("transit")) return Constants.STATUS_ON_THE_WAY;
-        if (normalized.contains("deliver")) return Constants.STATUS_DELIVERED;
-        if (normalized.contains("pending")) return Constants.STATUS_PENDING;
-        return status;
-    }
-
-    private String firstNonEmpty(String... values) {
-        if (values == null) {
-            return "";
-        }
-        for (String value : values) {
-            if (!TextUtils.isEmpty(value) && !"null".equalsIgnoreCase(value.trim())) {
-                return value.trim();
+            if (status.equals(Constants.STATUS_ASSIGNED) || status.equals(Constants.STATUS_ARRIVED_RESTAURANT)) {
+                subText += "\nDriver is picking up your order";
+            } else if (status.equals(Constants.STATUS_ON_THE_WAY)) {
+                subText += "\nDriver is on the way to you";
+            } else if (status.equals(Constants.STATUS_DELIVERED)) {
+                subText = "Order #" + activeOrderId + " Delivered! Enjoy your meal.";
+            } else {
+                subText += "\nWaiting for update...";
             }
         }
-        return "";
+        
+        driverLocationTextView.setText(subText);
+    }
+
+    private String getFriendlyStatus(String status) {
+        switch (status) {
+            case Constants.STATUS_PENDING: return "Order Placed";
+            case Constants.STATUS_ACCEPTED: return "Confirmed";
+            case Constants.STATUS_PREPARING: return "Preparing Food";
+            case Constants.STATUS_READY: return "Food Ready";
+            case Constants.STATUS_ASSIGNED: return "Driver Assigned";
+            case Constants.STATUS_ARRIVED_RESTAURANT: return "Driver at Restaurant";
+            case Constants.STATUS_PICKED_UP: return "Order Picked Up";
+            case Constants.STATUS_ON_THE_WAY: return "Out for Delivery";
+            case Constants.STATUS_DELIVERED: return "Delivered";
+            default: return status.substring(0, 1).toUpperCase() + status.substring(1).replace("_", " ");
+        }
+    }
+
+    private String normalizeStatus(String raw) {
+        if (raw == null) return Constants.STATUS_PENDING;
+        String n = raw.toLowerCase();
+        if (n.contains("accepted") || n.contains("confirm")) return Constants.STATUS_ACCEPTED;
+        if (n.contains("prepar")) return Constants.STATUS_PREPARING;
+        if (n.contains("ready")) return Constants.STATUS_READY;
+        if (n.contains("assigned")) return Constants.STATUS_ASSIGNED;
+        if (n.contains("arrived")) return Constants.STATUS_ARRIVED_RESTAURANT;
+        if (n.contains("picked")) return Constants.STATUS_PICKED_UP;
+        if (n.contains("way") || n.contains("transit")) return Constants.STATUS_ON_THE_WAY;
+        if (n.contains("deliver")) return Constants.STATUS_DELIVERED;
+        return Constants.STATUS_PENDING;
     }
 
     private Map<String, String> buildAuthHeaders() {
         Map<String, String> headers = new HashMap<>();
-        SharedPreferences prefs = getApplicationContext().getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
-        String token = prefs.getString("api_token", "");
-        if (!TextUtils.isEmpty(token)) {
-            headers.put("Authorization", "Bearer " + token);
-        }
+        String token = getSharedPreferences("fooddash_prefs", MODE_PRIVATE).getString("api_token", "");
+        if (!token.isEmpty()) headers.put("Authorization", "Bearer " + token);
         return headers;
     }
 
-    private void applyMenuData(JSONArray menus) {
-        productList.clear();
-        for (int i = 0; i < menus.length(); i++) {
-            JSONObject item = menus.optJSONObject(i);
-            if (item == null) {
-                continue;
-            }
-
-            Product product = parseProductFromJson(item, null, false);
-            product.setQuantity(getQuantityFromGlobalCart(product, restaurantId));
-            productList.add(product);
-        }
-
-        loadingProgressBar.setVisibility(View.GONE);
-        swipeRefreshLayout.setRefreshing(false);
-        adapter.notifyDataSetChanged();
-        calculateTotalPrice();
-        updateOrderControlsState();
-        highlightPendingMenuItemIfNeeded();
-
-        if (productList.isEmpty()) {
-            showEmpty("No menu available for this restaurant.");
-        } else {
-            emptyMessageTextView.setVisibility(View.GONE);
-        }
-    }
-
-    private Product parseProductFromJson(JSONObject item, String restaurantName, boolean includeRestaurantLabel) {
-        int id = item.optInt("id", item.optInt("menu_id", -1));
-        String name = item.optString("name", "Unnamed Item");
-        String description = item.optString("description", "");
+    private Product parseProductFromJson(JSONObject item, String resName, boolean includeRes) {
+        int id = item.optInt("id", -1);
+        String name = item.optString("name", "Item");
+        String desc = item.optString("description", "");
         double price = item.optDouble("price", 0.0);
-        String imageUrl = item.optString("image_url", "");
-
-        if (TextUtils.isEmpty(imageUrl)) {
-            imageUrl = item.optString("image", "");
-        }
-        if (TextUtils.isEmpty(imageUrl)) {
-            imageUrl = item.optString("image_path", "");
-        }
-
-        imageUrl = normalizeImageUrl(imageUrl);
-        boolean isAvailable = parseItemAvailability(item);
-
-        if (includeRestaurantLabel && !TextUtils.isEmpty(restaurantName)) {
-            if (TextUtils.isEmpty(description)) {
-                description = "From " + restaurantName;
-            } else {
-                description = "From " + restaurantName + " - " + description;
-            }
-        }
-
-        return new Product(id, name, description, price, imageUrl, isAvailable);
+        String img = normalizeImageUrl(item.optString("image_url", item.optString("image", "")));
+        if (includeRes && !TextUtils.isEmpty(resName)) desc = "From " + resName + " - " + desc;
+        return new Product(id, name, desc, price, img, true);
     }
 
-    private String buildProductKey(int productId, String productName) {
-        if (productId > 0) {
-            return "id:" + productId;
-        }
-        return "name:" + (productName == null ? "" : productName.trim().toLowerCase(Locale.ROOT));
-    }
-
-    private void showEmpty(String message) {
-        emptyMessageTextView.setText(message);
-        emptyMessageTextView.setVisibility(View.VISIBLE);
-    }
-
-    private String normalizeImageUrl(String rawImageUrl) {
-        if (TextUtils.isEmpty(rawImageUrl)) {
-            return "";
-        }
-
-        String imageUrl = rawImageUrl.trim();
-        String serverRoot = "http://" + Constants.IP_ADDRESS;
-
-        if (imageUrl.startsWith("http://localhost") || imageUrl.startsWith("https://localhost")) {
-            int slashIndex = imageUrl.indexOf('/', imageUrl.indexOf("//") + 2);
-            if (slashIndex != -1) {
-                return serverRoot + imageUrl.substring(slashIndex);
-            }
-            return serverRoot;
-        }
-
-        if (imageUrl.startsWith("/")) {
-            return serverRoot + imageUrl;
-        }
-
-        if (!imageUrl.startsWith("http://") && !imageUrl.startsWith("https://")) {
-            return serverRoot + "/" + imageUrl;
-        }
-
-        return imageUrl;
-    }
-
-    private boolean parseItemAvailability(JSONObject item) {
-        if (item == null) {
-            return true;
-        }
-
-        if (item.has("is_available")) {
-            return parseFlexibleBoolean(item.opt("is_available"), true);
-        }
-
-        if (item.has("available")) {
-            return parseFlexibleBoolean(item.opt("available"), true);
-        }
-
-        String status = item.optString("status", "").trim().toLowerCase(Locale.ROOT);
-        if (!status.isEmpty()) {
-            if ("unavailable".equals(status) || "out_of_stock".equals(status) || "inactive".equals(status)) {
-                return false;
-            }
-            if ("available".equals(status) || "active".equals(status)) {
-                return true;
-            }
-        }
-
-        if (item.has("stock")) {
-            return item.optInt("stock", 1) > 0;
-        }
-
-        return true;
-    }
-
-    private boolean parseFlexibleBoolean(Object value, boolean defaultValue) {
-        if (value == null) {
-            return defaultValue;
-        }
-
-        if (value instanceof Boolean) {
-            return (Boolean) value;
-        }
-
-        if (value instanceof Number) {
-            return ((Number) value).intValue() != 0;
-        }
-
-        String text = String.valueOf(value).trim().toLowerCase(Locale.ROOT);
-        if (text.isEmpty()) {
-            return defaultValue;
-        }
-
-        if ("1".equals(text) || "true".equals(text) || "yes".equals(text) || "available".equals(text) || "active".equals(text)) {
-            return true;
-        }
-
-        if ("0".equals(text) || "false".equals(text) || "no".equals(text) || "unavailable".equals(text) || "inactive".equals(text) || "out_of_stock".equals(text)) {
-            return false;
-        }
-
-        return defaultValue;
+    private String normalizeImageUrl(String url) {
+        if (url.isEmpty()) return "";
+        if (url.startsWith("http")) return url;
+        return "http://" + Constants.IP_ADDRESS + "/" + url;
     }
 
     private double calculateTotal() {
-        double total = 0;
-        for (Product product : productList) {
-            total += product.getPrice() * product.getQuantity();
-        }
-        return total;
+        double t = 0;
+        for (Product p : productList) t += p.price * p.quantity;
+        return t;
     }
 
     private void calculateTotalPrice() {
-        double subtotal = calculateTotal();
-        double deliveryFee = getSelectedDeliveryFee();
-        double grandTotal = subtotal + deliveryFee;
-        totalPriceTextView.setText(String.format(
-                Locale.getDefault(),
-                "Subtotal: ₱%.2f | Delivery: ₱%.2f | Total: ₱%.2f",
-                subtotal,
-                deliveryFee,
-                grandTotal
-        ));
-    }
-
-    private String getSelectedDeliveryType() {
-        int checkedId = vehicleRadioGroup.getCheckedRadioButtonId();
-        if (checkedId == R.id.radioTricycle) {
-            return Constants.DELIVERY_TRICYCLE;
-        }
-        if (checkedId == R.id.radioCab) {
-            return Constants.DELIVERY_CAB;
-        }
-        return Constants.DELIVERY_MOTORCYCLE;
+        totalPriceTextView.setText("Total: ₱" + String.format("%.2f", calculateTotal()));
     }
 
     private double getSelectedDeliveryFee() {
-        String deliveryType = getSelectedDeliveryType();
-        if (Constants.DELIVERY_TRICYCLE.equals(deliveryType)) {
-            return Constants.FEE_TRICYCLE;
-        }
-        if (Constants.DELIVERY_CAB.equals(deliveryType)) {
-            return Constants.FEE_CAB;
-        }
+        int id = vehicleRadioGroup.getCheckedRadioButtonId();
+        if (id == R.id.radioTricycle) return Constants.FEE_TRICYCLE;
+        if (id == R.id.radioCab) return Constants.FEE_CAB;
         return Constants.FEE_MOTORCYCLE;
     }
 
-    private void placeOrder() {
-        if (restaurantId <= 0) {
-            Toast.makeText(this, "Please select a restaurant first", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        List<Product> selectedProducts = adapter.getSelectedProducts();
-        if (selectedProducts.isEmpty()) {
-            Toast.makeText(this, "Please select at least one product", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        String deliveryAddress = deliveryAddressEditText.getText().toString().trim();
-        if (deliveryAddress.isEmpty()) {
-            Toast.makeText(this, "Please enter delivery address", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        autoSelectVehicleForCartSize();
-        String deliveryType = getSelectedDeliveryType();
-        double subtotal = calculateTotal();
-        double deliveryFee = getSelectedDeliveryFee();
-        double grandTotal = subtotal + deliveryFee;
-
-        // Get token from SharedPreferences using Application Context
-        SharedPreferences prefs = getApplicationContext().getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
-        String token = prefs.getString("api_token", null);
-        int userId = prefs.getInt("user_id", -1);
-        if (token == null || token.isEmpty()) {
-            Toast.makeText(this, "You are not logged in. Please log in again.", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        JSONObject jsonPayload = new JSONObject();
-        try {
-            jsonPayload.put("user_id", userId);
-            jsonPayload.put("restaurant_id", restaurantId);
-            jsonPayload.put("delivery_type", deliveryType);
-            jsonPayload.put("delivery_fee", deliveryFee);
-            jsonPayload.put("subtotal", subtotal);
-            jsonPayload.put("total_amount", grandTotal);
-            jsonPayload.put("delivery_address", deliveryAddress);
-            jsonPayload.put("status", Constants.STATUS_PENDING);
-
-            JSONArray itemsArray = new JSONArray();
-            for (Product product : selectedProducts) {
-                JSONObject item = new JSONObject();
-                item.put("menu_item_id", product.getId());
-                item.put("name", product.getName());
-                item.put("quantity", product.getQuantity());
-                item.put("price", product.getPrice());
-                itemsArray.put(item);
-            }
-            jsonPayload.put("items", itemsArray);
-        } catch (Exception e) {
-            Toast.makeText(this, "Unable to prepare order payload", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        JsonObjectRequest request = new JsonObjectRequest(
-                Request.Method.POST,
-                ORDERS_ENDPOINT,
-                jsonPayload,
-                response -> {
-                    JSONObject placedOrder = response.optJSONObject("order");
-                    if (placedOrder != null) {
-                        activeOrderId = placedOrder.optInt("id", placedOrder.optInt("order_id", -1));
-                        activeOrderStatus = normalizeStatus(placedOrder.optString("status", Constants.STATUS_PENDING));
-                    } else {
-                        activeOrderStatus = Constants.STATUS_PENDING;
-                    }
-                    renderOrderTimeline(activeOrderStatus, "");
-
-                    Toast.makeText(CustomerDashboard.this, "Order placed successfully!", Toast.LENGTH_LONG).show();
-                    for (Product p : productList) {
-                        p.setQuantity(0);
-                    }
-                    adapter.notifyDataSetChanged();
-                    calculateTotalPrice();
-                    fetchLatestCustomerOrder();
-                },
-                error -> placeOrderLegacy(jsonPayload)
-        ) {
-            @Override
-            public Map<String, String> getHeaders() {
-                return buildAuthHeaders();
-            }
-        };
-
-        requestQueue.add(request);
-    }
-
-    private void placeOrderLegacy(JSONObject payload) {
-        JsonObjectRequest legacyRequest = new JsonObjectRequest(
-                Request.Method.POST,
-                Constants.URL_PLACE_ORDER_LEGACY,
-                payload,
-                response -> {
-                    activeOrderId = response.optInt("order_id", response.optInt("id", -1));
-                    activeOrderStatus = normalizeStatus(response.optString("status", Constants.STATUS_PENDING));
-                    renderOrderTimeline(activeOrderStatus, "");
-
-                    Toast.makeText(CustomerDashboard.this, "Order placed successfully!", Toast.LENGTH_LONG).show();
-                    for (Product p : productList) {
-                        p.setQuantity(0);
-                    }
-                    adapter.notifyDataSetChanged();
-                    calculateTotalPrice();
-                    fetchLatestCustomerOrder();
-                },
-                error -> {
-                    Log.e("CustomerDashboard", "Failed to place order", error);
-                    Toast.makeText(CustomerDashboard.this, "Failed to place order", Toast.LENGTH_LONG).show();
-                }
-        ) {
-            @Override
-            public Map<String, String> getHeaders() {
-                return buildAuthHeaders();
-            }
-        };
-
-        requestQueue.add(legacyRequest);
-    }
-
-
-    // Product data model
     private static class Restaurant {
         int id;
         String name;
-
-        public Restaurant(int id, String name) {
-            this.id = id;
-            this.name = name;
-        }
-
-        public int getId() {
-            return id;
-        }
-
-        public String getName() {
-            return name;
-        }
+        Restaurant(int id, String name) { this.id = id; this.name = name; }
+        int getId() { return id; }
+        String getName() { return name; }
     }
 
-    // Product data model
     private static class Product {
         int id;
         String name;
@@ -1564,396 +888,113 @@ public class CustomerDashboard extends AppCompatActivity {
         String imageUrl;
         boolean isAvailable;
         int quantity = 0;
-
-        public Product(int id, String name, String description, double price, String imageUrl, boolean isAvailable) {
-            this.id = id;
-            this.name = name;
-            this.description = description;
-            this.price = price;
-            this.imageUrl = imageUrl;
-            this.isAvailable = isAvailable;
+        Product(int id, String name, String description, double price, String imageUrl, boolean available) {
+            this.id = id; this.name = name; this.description = description; this.price = price; this.imageUrl = imageUrl; this.isAvailable = available;
         }
-
-        public int getId() {
-            return id;
-        }
-
-        public String getName() {
-            return name;
-        }
-
-        public String getDescription() {
-            return description;
-        }
-
-        public double getPrice() {
-            return price;
-        }
-
-        public String getImageUrl() {
-            return imageUrl;
-        }
-
-        public boolean isAvailable() {
-            return isAvailable;
-        }
-
-        public int getQuantity() {
-            return quantity;
-        }
-
-        public void setQuantity(int quantity) {
-            this.quantity = quantity;
-        }
+        int getId() { return id; }
+        String getName() { return name; }
+        String getDescription() { return description; }
+        double getPrice() { return price; }
+        String getImageUrl() { return imageUrl; }
+        boolean isAvailable() { return isAvailable; }
     }
 
     private static class CartEntry {
-        int restaurantId;
-        String restaurantName;
-        int id;
-        String name;
+        int restaurantId, id, quantity;
+        String restaurantName, name;
         double price;
-        int quantity;
-
-        CartEntry(int restaurantId, String restaurantName, int id, String name, double price, int quantity) {
-            this.restaurantId = restaurantId;
-            this.restaurantName = restaurantName;
-            this.id = id;
-            this.name = name;
-            this.price = price;
-            this.quantity = quantity;
-        }
-
-        int getRestaurantId() {
-            return restaurantId;
-        }
-
-        String getRestaurantName() {
-            return restaurantName;
-        }
-
-        int getId() {
-            return id;
-        }
-
-        String getName() {
-            return name;
-        }
-
-        double getPrice() {
-            return price;
-        }
-
-        int getQuantity() {
-            return quantity;
+        CartEntry(int resId, String resName, int id, String name, double price, int qty) {
+            this.restaurantId = resId; this.restaurantName = resName; this.id = id; this.name = name; this.price = price; this.quantity = qty;
         }
     }
 
-    // RecyclerView Adapter
-    private class RestaurantAdapter extends RecyclerView.Adapter<RestaurantAdapter.RestaurantViewHolder> {
-
-        private final List<Restaurant> restaurants;
-
-        RestaurantAdapter(List<Restaurant> restaurants) {
-            this.restaurants = restaurants;
+    private class RestaurantAdapter extends RecyclerView.Adapter<RestaurantAdapter.ViewHolder> {
+        List<Restaurant> list;
+        RestaurantAdapter(List<Restaurant> list) { this.list = list; }
+        @NonNull @Override public ViewHolder onCreateViewHolder(@NonNull ViewGroup p, int t) {
+            return new ViewHolder(LayoutInflater.from(p.getContext()).inflate(R.layout.item_restaurant, p, false));
         }
-
-        @NonNull
-        @Override
-        public RestaurantViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-            View view = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_restaurant, parent, false);
-            return new RestaurantViewHolder(view);
+        @Override public void onBindViewHolder(@NonNull ViewHolder h, int p) {
+            Restaurant r = list.get(p);
+            h.name.setText(r.name);
+            boolean sel = p == selectedRestaurantPosition;
+            h.itemView.setAlpha(sel ? 1.0f : 0.7f);
+            h.itemView.setOnClickListener(v -> selectRestaurant(p, true));
         }
-
-        @Override
-        public void onBindViewHolder(@NonNull RestaurantViewHolder holder, int position) {
-            Restaurant restaurant = restaurants.get(position);
-            boolean isSelected = position == selectedRestaurantPosition;
-
-            holder.restaurantNameTextView.setText(restaurant.getName());
-            holder.itemView.setAlpha(isSelected ? 1.0f : 0.8f);
-            holder.itemView.setBackgroundResource(isSelected ? R.drawable.button_border : R.drawable.view_border);
-
-            holder.itemView.setOnClickListener(v -> {
-                if (selectedRestaurantPosition == position) {
-                    clearRestaurantSelection(true);
-                    return;
-                }
-                selectRestaurant(position, true);
-            });
-        }
-
-        @Override
-        public int getItemCount() {
-            return restaurants.size();
-        }
-
-        class RestaurantViewHolder extends RecyclerView.ViewHolder {
-            TextView restaurantNameTextView;
-
-            RestaurantViewHolder(@NonNull View itemView) {
-                super(itemView);
-                restaurantNameTextView = itemView.findViewById(R.id.restaurantNameTextView);
-            }
+        @Override public int getItemCount() { return list.size(); }
+        class ViewHolder extends RecyclerView.ViewHolder {
+            TextView name;
+            ViewHolder(View v) { super(v); name = v.findViewById(R.id.restaurantNameTextView); }
         }
     }
 
     private static class SearchRestaurant {
-        int id;
-        String name;
-        String imageUrl;
-
-        SearchRestaurant(int id, String name, String imageUrl) {
-            this.id = id;
-            this.name = name;
-            this.imageUrl = imageUrl;
-        }
+        int id; String name, imageUrl;
+        SearchRestaurant(int id, String name, String img) { this.id = id; this.name = name; this.imageUrl = img; }
     }
 
     private static class SearchMenuItem {
-        int id;
-        String name;
-        int restaurantId;
-        String restaurantName;
-        double price;
-        String imageUrl;
-
-        SearchMenuItem(int id, String name, int restaurantId, String restaurantName, double price, String imageUrl) {
-            this.id = id;
-            this.name = name;
-            this.restaurantId = restaurantId;
-            this.restaurantName = restaurantName;
-            this.price = price;
-            this.imageUrl = imageUrl;
+        int id, restaurantId; String name, restaurantName, imageUrl; double price;
+        SearchMenuItem(int id, String name, int resId, String resName, double price, String img) {
+            this.id = id; this.name = name; this.restaurantId = resId; this.restaurantName = resName; this.price = price; this.imageUrl = img;
         }
     }
 
     private class SearchRestaurantAdapter extends RecyclerView.Adapter<SearchRestaurantAdapter.ViewHolder> {
-
-        private final List<SearchRestaurant> restaurants;
-
-        SearchRestaurantAdapter(List<SearchRestaurant> restaurants) {
-            this.restaurants = restaurants;
+        List<SearchRestaurant> list;
+        SearchRestaurantAdapter(List<SearchRestaurant> list) { this.list = list; }
+        @NonNull @Override public ViewHolder onCreateViewHolder(@NonNull ViewGroup p, int t) {
+            return new ViewHolder(LayoutInflater.from(p.getContext()).inflate(R.layout.item_search_restaurant, p, false));
         }
-
-        @NonNull
-        @Override
-        public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-            View view = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_search_restaurant, parent, false);
-            return new ViewHolder(view);
+        @Override public void onBindViewHolder(@NonNull ViewHolder h, int p) {
+            SearchRestaurant r = list.get(p);
+            h.name.setText(r.name);
+            Glide.with(h.itemView).load(r.imageUrl).into(h.img);
+            h.itemView.setOnClickListener(v -> navigateToRestaurantFromSearch(r.id));
         }
-
-        @Override
-        public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
-            SearchRestaurant restaurant = restaurants.get(position);
-            holder.nameTextView.setText(restaurant.name);
-
-            Glide.with(holder.itemView.getContext())
-                    .load(restaurant.imageUrl)
-                    .placeholder(R.mipmap.ic_launcher)
-                    .error(R.mipmap.ic_launcher)
-                    .into(holder.imageView);
-
-            holder.itemView.setOnClickListener(v -> {
-                searchEditText.setText("");
-                searchEditText.clearFocus();
-                navigateToRestaurantFromSearch(restaurant.id);
-            });
-        }
-
-        @Override
-        public int getItemCount() {
-            return restaurants.size();
-        }
-
+        @Override public int getItemCount() { return list.size(); }
         class ViewHolder extends RecyclerView.ViewHolder {
-            ImageView imageView;
-            TextView nameTextView;
-
-            ViewHolder(@NonNull View itemView) {
-                super(itemView);
-                imageView = itemView.findViewById(R.id.searchRestaurantImageView);
-                nameTextView = itemView.findViewById(R.id.searchRestaurantNameTextView);
-            }
+            ImageView img; TextView name;
+            ViewHolder(View v) { super(v); img = v.findViewById(R.id.searchRestaurantImageView); name = v.findViewById(R.id.searchRestaurantNameTextView); }
         }
     }
 
     private class SearchMenuItemAdapter extends RecyclerView.Adapter<SearchMenuItemAdapter.ViewHolder> {
-
-        private final List<SearchMenuItem> menuItems;
-
-        SearchMenuItemAdapter(List<SearchMenuItem> menuItems) {
-            this.menuItems = menuItems;
+        List<SearchMenuItem> list;
+        SearchMenuItemAdapter(List<SearchMenuItem> list) { this.list = list; }
+        @NonNull @Override public ViewHolder onCreateViewHolder(@NonNull ViewGroup p, int t) {
+            return new ViewHolder(LayoutInflater.from(p.getContext()).inflate(R.layout.item_search_menu, p, false));
         }
-
-        @NonNull
-        @Override
-        public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-            View view = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_search_menu, parent, false);
-            return new ViewHolder(view);
+        @Override public void onBindViewHolder(@NonNull ViewHolder h, int p) {
+            SearchMenuItem i = list.get(p);
+            h.name.setText(i.name); h.res.setText(i.restaurantName); h.price.setText("₱" + String.format("%.2f", i.price));
+            Glide.with(h.itemView).load(i.imageUrl).into(h.img);
+            h.itemView.setOnClickListener(v -> navigateToMenuItemFromSearch(i));
         }
-
-        @Override
-        public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
-            SearchMenuItem item = menuItems.get(position);
-            holder.nameTextView.setText(item.name);
-
-            String sourceRestaurant = TextUtils.isEmpty(item.restaurantName)
-                    ? "Partner restaurant"
-                    : item.restaurantName;
-            holder.restaurantTextView.setText(sourceRestaurant);
-            holder.priceTextView.setText(String.format(Locale.getDefault(), "₱%.2f", item.price));
-
-            Glide.with(holder.itemView.getContext())
-                    .load(item.imageUrl)
-                    .placeholder(R.mipmap.ic_launcher)
-                    .error(R.mipmap.ic_launcher)
-                    .into(holder.imageView);
-
-            holder.itemView.setOnClickListener(v -> {
-                searchEditText.setText("");
-                searchEditText.clearFocus();
-                navigateToMenuItemFromSearch(item);
-            });
-        }
-
-        @Override
-        public int getItemCount() {
-            return menuItems.size();
-        }
-
+        @Override public int getItemCount() { return list.size(); }
         class ViewHolder extends RecyclerView.ViewHolder {
-            ImageView imageView;
-            TextView nameTextView;
-            TextView restaurantTextView;
-            TextView priceTextView;
-
-            ViewHolder(@NonNull View itemView) {
-                super(itemView);
-                imageView = itemView.findViewById(R.id.searchMenuImageView);
-                nameTextView = itemView.findViewById(R.id.searchMenuNameTextView);
-                restaurantTextView = itemView.findViewById(R.id.searchMenuRestaurantTextView);
-                priceTextView = itemView.findViewById(R.id.searchMenuPriceTextView);
-            }
+            ImageView img; TextView name, res, price;
+            ViewHolder(View v) { super(v); img = v.findViewById(R.id.searchMenuImageView); name = v.findViewById(R.id.searchMenuNameTextView); res = v.findViewById(R.id.searchMenuRestaurantTextView); price = v.findViewById(R.id.searchMenuPriceTextView); }
         }
     }
 
-    // RecyclerView Adapter
     private class ProductAdapter extends RecyclerView.Adapter<ProductAdapter.ViewHolder> {
-
-        private List<Product> products;
-
-        public ProductAdapter(List<Product> products) {
-            this.products = products;
+        List<Product> list;
+        ProductAdapter(List<Product> list) { this.list = list; }
+        @NonNull @Override public ViewHolder onCreateViewHolder(@NonNull ViewGroup p, int t) {
+            return new ViewHolder(LayoutInflater.from(p.getContext()).inflate(R.layout.product_item, p, false));
         }
-
-        @NonNull
-        @Override
-        public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-            View view = LayoutInflater.from(parent.getContext()).inflate(R.layout.product_item, parent, false);
-            return new ViewHolder(view);
+        @Override public void onBindViewHolder(@NonNull ViewHolder h, int p) {
+            Product pr = list.get(p);
+            h.name.setText(pr.name); h.desc.setText(pr.description); h.price.setText("₱" + String.format("%.2f", pr.price)); h.qty.setText(String.valueOf(pr.quantity));
+            Glide.with(h.itemView).load(pr.imageUrl).into(h.img);
+            h.plus.setOnClickListener(v -> { pr.quantity++; h.qty.setText(String.valueOf(pr.quantity)); syncProductWithGlobalCart(pr, restaurantId); });
+            h.minus.setOnClickListener(v -> { if (pr.quantity > 0) { pr.quantity--; h.qty.setText(String.valueOf(pr.quantity)); syncProductWithGlobalCart(pr, restaurantId); } });
         }
-
-        @Override
-        public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
-            Product product = products.get(position);
-            boolean isHighlighted = position == highlightedProductPosition;
-            holder.productNameTextView.setText(product.getName());
-            holder.productDescriptionTextView.setText(product.getDescription());
-            holder.productPriceTextView.setText(String.format(Locale.getDefault(), "₱%.2f", product.getPrice()));
-            holder.quantityTextView.setText(String.valueOf(product.getQuantity()));
-            boolean unavailable = !product.isAvailable();
-
-            holder.productCardView.setStrokeWidth(isHighlighted ? 2 : 0);
-            holder.productCardView.setStrokeColor(isHighlighted ? 0xFFEB5E28 : 0x00000000);
-
-            if (unavailable && product.getQuantity() != 0) {
-                product.setQuantity(0);
-                syncProductWithGlobalCart(product, restaurantId);
-                holder.quantityTextView.setText("0");
-                calculateTotalPrice();
-            }
-
-            boolean canAdjustQuantity = !isHomepageMode() && !unavailable;
-
-            holder.unavailableTextView.setVisibility(unavailable ? View.VISIBLE : View.GONE);
-            holder.plusButton.setEnabled(canAdjustQuantity);
-            holder.minusButton.setEnabled(canAdjustQuantity);
-            holder.plusButton.setClickable(canAdjustQuantity);
-            holder.minusButton.setClickable(canAdjustQuantity);
-            holder.quantityControlsLayout.setVisibility(isHomepageMode() ? View.GONE : View.VISIBLE);
-            holder.itemView.setEnabled(!unavailable);
-            holder.itemView.setClickable(false);
-            holder.itemView.setAlpha(unavailable ? 0.65f : 1.0f);
-            holder.plusButton.setAlpha(canAdjustQuantity ? 1.0f : 0.35f);
-            holder.minusButton.setAlpha(canAdjustQuantity ? 1.0f : 0.35f);
-
-            Glide.with(holder.itemView.getContext())
-                    .load(product.getImageUrl())
-                    .placeholder(R.mipmap.ic_launcher)
-                    .error(R.mipmap.ic_launcher)
-                    .into(holder.productImageView);
-
-            holder.plusButton.setOnClickListener(v -> {
-                if (!product.isAvailable() || isHomepageMode()) {
-                    return;
-                }
-                product.setQuantity(product.getQuantity() + 1);
-                syncProductWithGlobalCart(product, restaurantId);
-                notifyItemChanged(position);
-                autoSelectVehicleForCartSize();
-                calculateTotalPrice();
-            });
-
-            holder.minusButton.setOnClickListener(v -> {
-                if (!product.isAvailable() || isHomepageMode()) {
-                    return;
-                }
-                if (product.getQuantity() > 0) {
-                    product.setQuantity(product.getQuantity() - 1);
-                    syncProductWithGlobalCart(product, restaurantId);
-                    notifyItemChanged(position);
-                    autoSelectVehicleForCartSize();
-                    calculateTotalPrice();
-                }
-            });
-        }
-
-        @Override
-        public int getItemCount() {
-            return products.size();
-        }
-
-        public List<Product> getSelectedProducts() {
-            List<Product> selectedProducts = new ArrayList<>();
-            for (Product product : products) {
-                if (product.isAvailable() && product.getQuantity() > 0) {
-                    selectedProducts.add(product);
-                }
-            }
-            return selectedProducts;
-        }
-
-        public class ViewHolder extends RecyclerView.ViewHolder {
-            MaterialCardView productCardView;
-            ImageView productImageView;
-            LinearLayout quantityControlsLayout;
-            TextView productNameTextView, productDescriptionTextView, productPriceTextView, quantityTextView, unavailableTextView;
-            ImageButton plusButton, minusButton;
-
-            public ViewHolder(@NonNull View itemView) {
-                super(itemView);
-                productCardView = (MaterialCardView) itemView;
-                productImageView = itemView.findViewById(R.id.productImageView);
-                quantityControlsLayout = itemView.findViewById(R.id.quantityControlsLayout);
-                productNameTextView = itemView.findViewById(R.id.productNameTextView);
-                productDescriptionTextView = itemView.findViewById(R.id.productDescriptionTextView);
-                productPriceTextView = itemView.findViewById(R.id.productPriceTextView);
-                quantityTextView = itemView.findViewById(R.id.quantityTextView);
-                unavailableTextView = itemView.findViewById(R.id.unavailableTextView);
-                plusButton = itemView.findViewById(R.id.plusButton);
-                minusButton = itemView.findViewById(R.id.minusButton);
-            }
+        @Override public int getItemCount() { return list.size(); }
+        class ViewHolder extends RecyclerView.ViewHolder {
+            ImageView img; TextView name, desc, price, qty; ImageButton plus, minus;
+            ViewHolder(View v) { super(v); img = v.findViewById(R.id.productImageView); name = v.findViewById(R.id.productNameTextView); desc = v.findViewById(R.id.productDescriptionTextView); price = v.findViewById(R.id.productPriceTextView); qty = v.findViewById(R.id.quantityTextView); plus = v.findViewById(R.id.plusButton); minus = v.findViewById(R.id.minusButton); }
         }
     }
 }

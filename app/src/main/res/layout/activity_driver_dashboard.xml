@@ -25,12 +25,31 @@
             android:text="Vehicle: --"
             android:textStyle="bold" />
 
-        <Switch
-            android:id="@+id/onlineSwitch"
-            android:layout_width="wrap_content"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:text="Go Online" />
+            android:orientation="horizontal"
+            android:layout_marginTop="10dp">
+
+            <Switch
+                android:id="@+id/onlineSwitch"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Go Online" />
+
+            <View
+                android:layout_width="0dp"
+                android:layout_height="1dp"
+                android:layout_weight="1" />
+
+            <Button
+                android:id="@+id/btnViewHistory"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="History"
+                style="?attr/materialButtonOutlinedStyle"
+                android:textSize="12sp" />
+        </LinearLayout>
 
         <Button
             android:id="@+id/btnRefreshRequests"

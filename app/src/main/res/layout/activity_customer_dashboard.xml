@@ -276,7 +276,7 @@
         android:textColor="@color/black"
         app:strokeColor="@color/black"
         app:backgroundTint="@color/white"
-        app:layout_constraintBottom_toTopOf="@+id/btnLogout"
+        app:layout_constraintBottom_toTopOf="@+id/orderTrackingLayout"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         android:layout_marginStart="16dp"

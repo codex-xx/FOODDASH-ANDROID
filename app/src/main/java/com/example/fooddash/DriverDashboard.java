@@ -31,8 +31,7 @@ public class DriverDashboard extends AppCompatActivity {
 
     private static final String TAG = "DriverDashboard";
     private static final String PREFS_NAME = "fooddash_prefs";
-    private static final String DRIVER_APPROVAL_EMAIL_SENT_PREFIX = "driver_approval_email_sent_";
-    private static final long POLLING_MS = 3000L; // Slightly faster polling for "automatic" feel
+    private static final long POLLING_MS = 3000L;
 
     private Switch onlineSwitch;
     private TextView driverVehicleTextView;
@@ -41,7 +40,8 @@ public class DriverDashboard extends AppCompatActivity {
     private Button btnRefreshRequests;
     private Button btnAcceptOrder;
     private Button btnRejectOrder;
-    private Button btnViewActiveOrder; // New button
+    private Button btnViewActiveOrder; 
+    private Button btnViewHistory;
     private Button btnLogout;
 
     private RequestQueue requestQueue;
@@ -67,24 +67,22 @@ public class DriverDashboard extends AppCompatActivity {
         btnRefreshRequests = findViewById(R.id.btnRefreshRequests);
         btnAcceptOrder = findViewById(R.id.btnAcceptOrder);
         btnRejectOrder = findViewById(R.id.btnRejectOrder);
+        btnViewHistory = findViewById(R.id.btnViewHistory);
         
-        // Find existing status buttons to hide them (optional, but cleaner)
-        View btnArrived = findViewById(R.id.btnArrived);
-        View btnPickedUp = findViewById(R.id.btnPickedUp);
-        View btnOnTheWay = findViewById(R.id.btnOnTheWay);
-        View btnDelivered = findViewById(R.id.btnDelivered);
-        if (btnArrived != null) btnArrived.setVisibility(View.GONE);
-        if (btnPickedUp != null) btnPickedUp.setVisibility(View.GONE);
-        if (btnOnTheWay != null) btnOnTheWay.setVisibility(View.GONE);
-        if (btnDelivered != null) btnDelivered.setVisibility(View.GONE);
-
-        // We'll repurpose one of the buttons or add a new one in the layout update next.
-        // For now, let's use btnArrived as "View Order Details" if it exists, or create a dynamic one.
-        btnViewActiveOrder = findViewById(R.id.btnArrived); // Repurposing Arrived button for now
+        btnViewActiveOrder = findViewById(R.id.btnArrived); 
         if (btnViewActiveOrder != null) {
             btnViewActiveOrder.setText("View Order Details");
             btnViewActiveOrder.setOnClickListener(v -> openActiveOrderPage());
+            btnViewActiveOrder.setVisibility(View.GONE);
         }
+
+        // Initially hide other status buttons as they are managed in ActiveOrderActivity
+        View btnPickedUp = findViewById(R.id.btnPickedUp);
+        View btnOnTheWay = findViewById(R.id.btnOnTheWay);
+        View btnDelivered = findViewById(R.id.btnDelivered);
+        if (btnPickedUp != null) btnPickedUp.setVisibility(View.GONE);
+        if (btnOnTheWay != null) btnOnTheWay.setVisibility(View.GONE);
+        if (btnDelivered != null) btnDelivered.setVisibility(View.GONE);
 
         btnLogout = findViewById(R.id.btnLogout);
 
@@ -94,6 +92,13 @@ public class DriverDashboard extends AppCompatActivity {
         btnRefreshRequests.setOnClickListener(v -> refreshDriverOrders());
         btnAcceptOrder.setOnClickListener(v -> acceptCurrentOrder());
         btnRejectOrder.setOnClickListener(v -> rejectCurrentOrder());
+        
+        if (btnViewHistory != null) {
+            btnViewHistory.setOnClickListener(v -> {
+                Intent historyIntent = new Intent(this, DriverHistoryActivity.class);
+                startActivity(historyIntent);
+            });
+        }
 
         onlineSwitch.setOnCheckedChangeListener((buttonView, checked) -> {
             isOnline = checked;
@@ -109,6 +114,8 @@ public class DriverDashboard extends AppCompatActivity {
         });
 
         btnLogout.setOnClickListener(v -> {
+            SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+            prefs.edit().clear().apply();
             startActivity(new Intent(this, LoginActivity.class));
             finish();
         });
@@ -230,19 +237,15 @@ public class DriverDashboard extends AppCompatActivity {
             String status = normalizeStatus(order.optString("status", ""));
             int orderDriverId = order.optInt("driver_id", -1);
 
-            // If an order is assigned to THIS driver specifically, it's either active or a new request
             if (driverId > 0 && orderDriverId == driverId) {
                 if (Constants.STATUS_ASSIGNED.equals(status)) {
-                    // Admin assigned THIS driver specifically, show it as incoming first
                     incomingOrder = order;
                 } else if (!Constants.STATUS_DELIVERED.equals(status)) {
-                    // Already accepted or in progress
                     activeOrder = order;
                 }
                 continue;
             }
 
-            // General pool orders (Ready or Assigned to NO ONE yet)
             if ((Constants.STATUS_READY.equals(status) || Constants.STATUS_PENDING.equals(status))
                     && vehicleMatches(order)
                     && incomingOrder == null && orderDriverId <= 0) {
@@ -322,7 +325,7 @@ public class DriverDashboard extends AppCompatActivity {
         try {
             payload.put("order_id", orderId);
             payload.put("driver_id", getDriverId());
-            payload.put("status", Constants.STATUS_ACCEPTED); // Status changes to accepted
+            payload.put("status", Constants.STATUS_ACCEPTED); 
         } catch (JSONException e) {
             return;
         }
@@ -334,9 +337,10 @@ public class DriverDashboard extends AppCompatActivity {
                 response -> {
                     activeOrder = incomingOrder;
                     incomingOrder = null;
-                    openActiveOrderPage();
                     renderIncomingOrder();
                     renderActiveOrder();
+                    // Just refresh the dashboard, the user can click "View Order Details" now
+                    Toast.makeText(this, "Order Accepted!", Toast.LENGTH_SHORT).show();
                 },
                 error -> acceptOrderLegacy(payload)
         ) {
@@ -357,9 +361,9 @@ public class DriverDashboard extends AppCompatActivity {
                 response -> {
                     activeOrder = incomingOrder;
                     incomingOrder = null;
-                    openActiveOrderPage();
                     renderIncomingOrder();
                     renderActiveOrder();
+                    Toast.makeText(this, "Order Accepted!", Toast.LENGTH_SHORT).show();
                 },
                 error -> Toast.makeText(this, "Failed to accept order", Toast.LENGTH_SHORT).show()
         ) {
@@ -434,7 +438,6 @@ public class DriverDashboard extends AppCompatActivity {
                 URL_GET_PROFILE,
                 null,
                 response -> {
-                    // Logic already exists in profile check
                 },
                 error -> { }
         ) {

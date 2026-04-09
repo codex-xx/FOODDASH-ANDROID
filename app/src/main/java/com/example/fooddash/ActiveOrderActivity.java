@@ -28,7 +28,7 @@ public class ActiveOrderActivity extends AppCompatActivity {
 
     private TextView activeOrderIdText, activeCustomerName, activeCustomerContact, activeDeliveryAddress;
     private TextView activeRestaurantName, activeOrderItems, activeOrderStatus;
-    private Button btnArrived, btnPickedUp, btnOnTheWay, btnDelivered, btnBackToDashboard;
+    private Button btnPickedUp, btnOnTheWay, btnDelivered, btnBackToDashboard;
 
     private RequestQueue requestQueue;
     private JSONObject activeOrder;
@@ -49,10 +49,13 @@ public class ActiveOrderActivity extends AppCompatActivity {
         activeOrderItems = findViewById(R.id.activeOrderItems);
         activeOrderStatus = findViewById(R.id.activeOrderStatus);
 
-        btnArrived = findViewById(R.id.btnArrived);
         btnPickedUp = findViewById(R.id.btnPickedUp);
         btnOnTheWay = findViewById(R.id.btnOnTheWay);
         btnDelivered = findViewById(R.id.btnDelivered);
+        
+        Button btnArrived = findViewById(R.id.btnArrived);
+        if (btnArrived != null) btnArrived.setVisibility(View.GONE);
+
         btnBackToDashboard = findViewById(R.id.btnBackToDashboard);
 
         String orderJson = getIntent().getStringExtra("order_json");
@@ -61,7 +64,6 @@ public class ActiveOrderActivity extends AppCompatActivity {
                 activeOrder = new JSONObject(orderJson);
                 orderId = activeOrder.optInt("id", activeOrder.optInt("order_id", -1));
                 renderOrderDetails();
-                // Even if we have some data, try to fetch full details to get the items list
                 fetchFullOrderDetails();
             } catch (JSONException e) {
                 Log.e(TAG, "Error parsing order JSON", e);
@@ -71,17 +73,16 @@ public class ActiveOrderActivity extends AppCompatActivity {
             finish();
         }
 
-        btnArrived.setOnClickListener(v -> updateOrderStatus(Constants.STATUS_ARRIVED_RESTAURANT));
         btnPickedUp.setOnClickListener(v -> updateOrderStatus(Constants.STATUS_PICKED_UP));
         btnOnTheWay.setOnClickListener(v -> updateOrderStatus(Constants.STATUS_ON_THE_WAY));
         btnDelivered.setOnClickListener(v -> updateOrderStatus(Constants.STATUS_DELIVERED));
+        
         btnBackToDashboard.setOnClickListener(v -> finish());
     }
 
     private void fetchFullOrderDetails() {
         if (orderId <= 0) return;
 
-        // Try to fetch specific order details from the server
         String url = Constants.URL_ORDERS + "/" + orderId;
         JsonObjectRequest request = new JsonObjectRequest(
                 Request.Method.GET,
@@ -94,13 +95,11 @@ public class ActiveOrderActivity extends AppCompatActivity {
 
                     if (freshOrder != null && freshOrder.length() > 0) {
                         activeOrder = freshOrder;
+                        orderId = activeOrder.optInt("id", activeOrder.optInt("order_id", orderId));
                         renderOrderDetails();
                     }
                 },
-                error -> {
-                    // If REST fails, try legacy endpoint
-                    fetchFullOrderDetailsLegacy();
-                }
+                error -> fetchFullOrderDetailsLegacy()
         ) {
             @Override
             public Map<String, String> getHeaders() {
@@ -121,6 +120,7 @@ public class ActiveOrderActivity extends AppCompatActivity {
                     if (orders == null) orders = response.optJSONArray("data");
                     if (orders != null && orders.length() > 0) {
                         activeOrder = orders.optJSONObject(0);
+                        orderId = activeOrder.optInt("id", activeOrder.optInt("order_id", orderId));
                         renderOrderDetails();
                     }
                 },
@@ -138,10 +138,13 @@ public class ActiveOrderActivity extends AppCompatActivity {
         if (activeOrder == null) return;
 
         activeOrderIdText.setText("Order #" + orderId);
-        
         activeCustomerName.setText(activeOrder.optString("customer_name", "Customer"));
         
+        // Added more keys to check for phone number
         String contact = firstNonEmpty(
+                activeOrder.optString("customer_phone"),
+                activeOrder.optString("phone_number"),
+                activeOrder.optString("mobile"),
                 activeOrder.optString("customer_contact"), 
                 activeOrder.optString("contact_number"), 
                 activeOrder.optString("phone"),
@@ -160,10 +163,11 @@ public class ActiveOrderActivity extends AppCompatActivity {
         
         StringBuilder itemsBuilder = new StringBuilder();
         
-        // Try various ways the items might be stored
+        // Enhanced items parsing to handle multiple items correctly
         JSONArray itemsArray = activeOrder.optJSONArray("items");
+        if (itemsArray == null) itemsArray = activeOrder.optJSONArray("order_items");
+        
         if (itemsArray == null) {
-            // Check if it's a stringified JSON array
             String itemsStr = activeOrder.optString("items", "");
             if (itemsStr.startsWith("[")) {
                 try {
@@ -180,7 +184,8 @@ public class ActiveOrderActivity extends AppCompatActivity {
                         item.optString("name"), 
                         item.optString("food_name"), 
                         item.optString("item_name"), 
-                        item.optString("menu_item_name")
+                        item.optString("menu_item_name"),
+                        item.optString("product_name")
                     );
                     int qty = item.optInt("quantity", item.optInt("qty", 1));
                     if (!name.isEmpty()) {
@@ -189,11 +194,11 @@ public class ActiveOrderActivity extends AppCompatActivity {
                 }
             }
         } else {
-            // Fallback to summary strings
+            // Fallback for string-based summaries
             String summary = firstNonEmpty(
                 activeOrder.optString("items_summary"), 
                 activeOrder.optString("order_details"),
-                activeOrder.optString("order_items")
+                activeOrder.optString("items")
             );
             if (!summary.isEmpty()) {
                 itemsBuilder.append(summary);
@@ -219,14 +224,11 @@ public class ActiveOrderActivity extends AppCompatActivity {
     }
 
     private void updateButtonVisibilities(String status) {
-        btnArrived.setVisibility(View.GONE);
         btnPickedUp.setVisibility(View.GONE);
         btnOnTheWay.setVisibility(View.GONE);
         btnDelivered.setVisibility(View.GONE);
 
-        if (Constants.STATUS_ASSIGNED.equals(status) || Constants.STATUS_ACCEPTED.equals(status)) {
-            btnArrived.setVisibility(View.VISIBLE);
-        } else if (Constants.STATUS_ARRIVED_RESTAURANT.equals(status)) {
+        if (Constants.STATUS_READY.equals(status)) {
             btnPickedUp.setVisibility(View.VISIBLE);
         } else if (Constants.STATUS_PICKED_UP.equals(status)) {
             btnOnTheWay.setVisibility(View.VISIBLE);
@@ -238,8 +240,11 @@ public class ActiveOrderActivity extends AppCompatActivity {
     private void updateOrderStatus(String status) {
         JSONObject payload = new JSONObject();
         try {
+            int driverId = getDriverId();
             payload.put("order_id", orderId);
-            payload.put("driver_id", getDriverId());
+            payload.put("orderid", orderId);
+            payload.put("driver_id", driverId);
+            payload.put("user_id", driverId);
             payload.put("status", status);
         } catch (JSONException e) {
             return;
@@ -249,15 +254,11 @@ public class ActiveOrderActivity extends AppCompatActivity {
                 Request.Method.POST,
                 Constants.URL_UPDATE_STATUS,
                 payload,
-                response -> {
-                    Toast.makeText(this, "Status updated to " + status, Toast.LENGTH_SHORT).show();
-                    activeOrderStatus.setText("Status: " + status.toUpperCase());
-                    updateButtonVisibilities(status);
-                    if (Constants.STATUS_DELIVERED.equals(status)) {
-                        finish();
-                    }
-                },
-                error -> updateStatusLegacy(payload, status)
+                response -> handleStatusUpdateSuccess(status),
+                error -> {
+                    Log.e(TAG, "Update status failed, trying fallbacks", error);
+                    updateStatusFallbackPHP(payload, status);
+                }
         ) {
             @Override
             public Map<String, String> getHeaders() {
@@ -268,20 +269,14 @@ public class ActiveOrderActivity extends AppCompatActivity {
         requestQueue.add(request);
     }
 
-    private void updateStatusLegacy(JSONObject payload, String status) {
+    private void updateStatusFallbackPHP(JSONObject payload, String status) {
+        String fallbackUrl = Constants.BASE_URL.replace("/api/", "/api/update_status.php");
         JsonObjectRequest request = new JsonObjectRequest(
                 Request.Method.POST,
-                Constants.URL_UPDATE_ORDER_STATUS_LEGACY,
+                fallbackUrl,
                 payload,
-                response -> {
-                    Toast.makeText(this, "Status updated to " + status, Toast.LENGTH_SHORT).show();
-                    activeOrderStatus.setText("Status: " + status.toUpperCase());
-                    updateButtonVisibilities(status);
-                    if (Constants.STATUS_DELIVERED.equals(status)) {
-                        finish();
-                    }
-                },
-                error -> Toast.makeText(this, "Failed to update status", Toast.LENGTH_SHORT).show()
+                response -> handleStatusUpdateSuccess(status),
+                error -> updateStatusLegacy(payload, status)
         ) {
             @Override
             public Map<String, String> getHeaders() {
@@ -289,6 +284,34 @@ public class ActiveOrderActivity extends AppCompatActivity {
             }
         };
         requestQueue.add(request);
+    }
+
+    private void updateStatusLegacy(JSONObject payload, String status) {
+        JsonObjectRequest request = new JsonObjectRequest(
+                Request.Method.POST,
+                Constants.URL_UPDATE_ORDER_STATUS_LEGACY,
+                payload,
+                response -> handleStatusUpdateSuccess(status),
+                error -> {
+                    Log.e(TAG, "All status update attempts failed", error);
+                    Toast.makeText(this, "Failed to update status. Check backend.", Toast.LENGTH_SHORT).show();
+                }
+        ) {
+            @Override
+            public Map<String, String> getHeaders() {
+                return buildAuthHeaders();
+            }
+        };
+        requestQueue.add(request);
+    }
+
+    private void handleStatusUpdateSuccess(String status) {
+        Toast.makeText(this, "Order marked as " + status.replace("_", " "), Toast.LENGTH_SHORT).show();
+        activeOrderStatus.setText("Status: " + status.toUpperCase());
+        updateButtonVisibilities(status);
+        if (Constants.STATUS_DELIVERED.equals(status)) {
+            finish();
+        }
     }
 
     private int getDriverId() {

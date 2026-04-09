@@ -33,6 +33,7 @@
         <activity android:name=".VerifyCodeActivity"/>
         <activity android:name=".ResetPasswordActivity"/>
         <activity android:name=".ActiveOrderActivity"/>
+        <activity android:name=".DriverHistoryActivity"/>
 
     </application>
 </manifest>
