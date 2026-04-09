@@ -58,6 +58,12 @@ public class DriverDashboard extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_driver_dashboard);
 
+        if (!AccessControlManager.requireAccess(this,
+                AccessControlManager.Resource.DRIVER_DASHBOARD,
+                AccessControlManager.Action.READ)) {
+            return;
+        }
+
         requestQueue = Volley.newRequestQueue(this);
 
         onlineSwitch = findViewById(R.id.onlineSwitch);
@@ -320,6 +326,13 @@ public class DriverDashboard extends AppCompatActivity {
 
     private void acceptCurrentOrder() {
         if (incomingOrder == null) return;
+
+        if (!AccessControlManager.canPerform(this,
+                AccessControlManager.Resource.ORDERS,
+                AccessControlManager.Action.UPDATE)) {
+            Toast.makeText(this, "Access denied for this action", Toast.LENGTH_SHORT).show();
+            return;
+        }
 
         JSONObject payload = new JSONObject();
         int orderId = incomingOrder.optInt("id", incomingOrder.optInt("order_id", -1));

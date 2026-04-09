@@ -46,6 +46,12 @@ public class CheckoutActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_checkout);
 
+        if (!AccessControlManager.requireAccess(this,
+                AccessControlManager.Resource.CHECKOUT,
+                AccessControlManager.Action.READ)) {
+            return;
+        }
+
         requestQueue = Volley.newRequestQueue(this);
 
         checkoutAddressEditText = findViewById(R.id.checkoutAddressEditText);
@@ -126,6 +132,13 @@ public class CheckoutActivity extends AppCompatActivity {
     }
 
     private void placeOrder() {
+        if (!AccessControlManager.canPerform(this,
+                AccessControlManager.Resource.ORDERS,
+                AccessControlManager.Action.WRITE)) {
+            Toast.makeText(this, "Access denied for this action", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
         SharedPreferences prefs = getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
         int userId = prefs.getInt("user_id", -1);
         String token = AuthSessionManager.getValidAccessTokenOrNull(this);

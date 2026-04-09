@@ -143,6 +143,12 @@ public class CustomerDashboard extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_customer_dashboard);
 
+        if (!AccessControlManager.requireAccess(this,
+                AccessControlManager.Resource.CUSTOMER_DASHBOARD,
+                AccessControlManager.Action.READ)) {
+            return;
+        }
+
         restaurantsRecyclerView = findViewById(R.id.restaurantsRecyclerView);
         productsRecyclerView = findViewById(R.id.productsRecyclerView);
         searchRestaurantsRecyclerView = findViewById(R.id.searchRestaurantsRecyclerView);

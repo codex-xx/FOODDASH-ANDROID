@@ -35,6 +35,12 @@ public class CartActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_cart);
 
+        if (!AccessControlManager.requireAccess(this,
+                AccessControlManager.Resource.CART,
+                AccessControlManager.Action.READ)) {
+            return;
+        }
+
         TextView cartHeaderTextView = findViewById(R.id.cartHeaderTextView);
         subtotalTextView = findViewById(R.id.subtotalTextView);
         cartGroupsContainer = findViewById(R.id.cartGroupsContainer);

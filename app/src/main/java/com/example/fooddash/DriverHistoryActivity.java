@@ -44,6 +44,12 @@ public class DriverHistoryActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_driver_history);
 
+        if (!AccessControlManager.requireAccess(this,
+                AccessControlManager.Resource.DRIVER_HISTORY,
+                AccessControlManager.Action.READ)) {
+            return;
+        }
+
         requestQueue = Volley.newRequestQueue(this);
 
         historyRecyclerView = findViewById(R.id.historyRecyclerView);

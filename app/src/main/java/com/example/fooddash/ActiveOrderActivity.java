@@ -39,6 +39,12 @@ public class ActiveOrderActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_active_order);
 
+        if (!AccessControlManager.requireAccess(this,
+                AccessControlManager.Resource.ACTIVE_ORDER,
+                AccessControlManager.Action.READ)) {
+            return;
+        }
+
         requestQueue = Volley.newRequestQueue(this);
 
         activeOrderIdText = findViewById(R.id.activeOrderIdText);
@@ -238,6 +244,13 @@ public class ActiveOrderActivity extends AppCompatActivity {
     }
 
     private void updateOrderStatus(String status) {
+        if (!AccessControlManager.canPerform(this,
+                AccessControlManager.Resource.ORDERS,
+                AccessControlManager.Action.UPDATE)) {
+            Toast.makeText(this, "Access denied for this action", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
         JSONObject payload = new JSONObject();
         try {
             int driverId = getDriverId();

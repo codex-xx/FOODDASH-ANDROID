@@ -49,6 +49,12 @@ public class OrderTrackingActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_order_tracking);
 
+        if (!AccessControlManager.requireAccess(this,
+                AccessControlManager.Resource.ORDER_TRACKING,
+                AccessControlManager.Action.READ)) {
+            return;
+        }
+
         expectedOrderId = getIntent().getIntExtra("order_id", -1);
         requestQueue = Volley.newRequestQueue(this);
 
