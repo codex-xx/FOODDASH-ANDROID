@@ -15,6 +15,7 @@ import com.android.volley.RequestQueue;
 import com.android.volley.toolbox.JsonObjectRequest;
 import com.android.volley.toolbox.Volley;
 
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -58,7 +59,10 @@ public class ActiveOrderActivity extends AppCompatActivity {
         if (orderJson != null) {
             try {
                 activeOrder = new JSONObject(orderJson);
+                orderId = activeOrder.optInt("id", activeOrder.optInt("order_id", -1));
                 renderOrderDetails();
+                // Even if we have some data, try to fetch full details to get the items list
+                fetchFullOrderDetails();
             } catch (JSONException e) {
                 Log.e(TAG, "Error parsing order JSON", e);
                 finish();
@@ -74,21 +78,144 @@ public class ActiveOrderActivity extends AppCompatActivity {
         btnBackToDashboard.setOnClickListener(v -> finish());
     }
 
+    private void fetchFullOrderDetails() {
+        if (orderId <= 0) return;
+
+        // Try to fetch specific order details from the server
+        String url = Constants.URL_ORDERS + "/" + orderId;
+        JsonObjectRequest request = new JsonObjectRequest(
+                Request.Method.GET,
+                url,
+                null,
+                response -> {
+                    JSONObject freshOrder = response.optJSONObject("order");
+                    if (freshOrder == null) freshOrder = response.optJSONObject("data");
+                    if (freshOrder == null) freshOrder = response;
+
+                    if (freshOrder != null && freshOrder.length() > 0) {
+                        activeOrder = freshOrder;
+                        renderOrderDetails();
+                    }
+                },
+                error -> {
+                    // If REST fails, try legacy endpoint
+                    fetchFullOrderDetailsLegacy();
+                }
+        ) {
+            @Override
+            public Map<String, String> getHeaders() {
+                return buildAuthHeaders();
+            }
+        };
+        requestQueue.add(request);
+    }
+
+    private void fetchFullOrderDetailsLegacy() {
+        String url = Constants.URL_GET_ORDERS_LEGACY + "?order_id=" + orderId;
+        JsonObjectRequest request = new JsonObjectRequest(
+                Request.Method.GET,
+                url,
+                null,
+                response -> {
+                    JSONArray orders = response.optJSONArray("orders");
+                    if (orders == null) orders = response.optJSONArray("data");
+                    if (orders != null && orders.length() > 0) {
+                        activeOrder = orders.optJSONObject(0);
+                        renderOrderDetails();
+                    }
+                },
+                error -> Log.e(TAG, "Failed to fetch order details from all sources")
+        ) {
+            @Override
+            public Map<String, String> getHeaders() {
+                return buildAuthHeaders();
+            }
+        };
+        requestQueue.add(request);
+    }
+
     private void renderOrderDetails() {
-        orderId = activeOrder.optInt("id", activeOrder.optInt("order_id", -1));
+        if (activeOrder == null) return;
+
         activeOrderIdText.setText("Order #" + orderId);
         
         activeCustomerName.setText(activeOrder.optString("customer_name", "Customer"));
-        activeCustomerContact.setText("Contact: " + activeOrder.optString("customer_contact", "N/A"));
-        activeDeliveryAddress.setText("Address: " + activeOrder.optString("delivery_address", "N/A"));
+        
+        String contact = firstNonEmpty(
+                activeOrder.optString("customer_contact"), 
+                activeOrder.optString("contact_number"), 
+                activeOrder.optString("phone"),
+                "N/A"
+        );
+        activeCustomerContact.setText("Contact: " + contact);
+        
+        String address = firstNonEmpty(
+                activeOrder.optString("delivery_address"), 
+                activeOrder.optString("address"), 
+                "N/A"
+        );
+        activeDeliveryAddress.setText("Address: " + address);
         
         activeRestaurantName.setText(activeOrder.optString("restaurant_name", "Restaurant"));
-        activeOrderItems.setText("Items: " + activeOrder.optString("items_summary", "View in items list"));
+        
+        StringBuilder itemsBuilder = new StringBuilder();
+        
+        // Try various ways the items might be stored
+        JSONArray itemsArray = activeOrder.optJSONArray("items");
+        if (itemsArray == null) {
+            // Check if it's a stringified JSON array
+            String itemsStr = activeOrder.optString("items", "");
+            if (itemsStr.startsWith("[")) {
+                try {
+                    itemsArray = new JSONArray(itemsStr);
+                } catch (JSONException ignored) {}
+            }
+        }
+
+        if (itemsArray != null && itemsArray.length() > 0) {
+            for (int i = 0; i < itemsArray.length(); i++) {
+                JSONObject item = itemsArray.optJSONObject(i);
+                if (item != null) {
+                    String name = firstNonEmpty(
+                        item.optString("name"), 
+                        item.optString("food_name"), 
+                        item.optString("item_name"), 
+                        item.optString("menu_item_name")
+                    );
+                    int qty = item.optInt("quantity", item.optInt("qty", 1));
+                    if (!name.isEmpty()) {
+                        itemsBuilder.append(qty).append("x ").append(name).append("\n");
+                    }
+                }
+            }
+        } else {
+            // Fallback to summary strings
+            String summary = firstNonEmpty(
+                activeOrder.optString("items_summary"), 
+                activeOrder.optString("order_details"),
+                activeOrder.optString("order_items")
+            );
+            if (!summary.isEmpty()) {
+                itemsBuilder.append(summary);
+            }
+        }
+
+        String finalItems = itemsBuilder.toString().trim();
+        activeOrderItems.setText(finalItems.isEmpty() ? "Items:\n(Loading item list...)" : "Items:\n" + finalItems);
         
         String status = activeOrder.optString("status", "pending");
         activeOrderStatus.setText("Status: " + status.toUpperCase());
         
         updateButtonVisibilities(status);
+    }
+
+    private String firstNonEmpty(String... values) {
+        for (String v : values) {
+            if (v != null && !v.trim().isEmpty() && !v.equals("null") && !v.equals("undefined")) {
+                return v.trim();
+            }
+        }
+        return "";
     }
 
     private void updateButtonVisibilities(String status) {

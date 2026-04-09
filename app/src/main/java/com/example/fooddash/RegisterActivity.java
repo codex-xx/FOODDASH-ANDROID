@@ -67,6 +67,7 @@ public class RegisterActivity extends AppCompatActivity {
         roleGroup.setOnCheckedChangeListener((group, checkedId) -> {
             boolean isDriver = checkedId == R.id.rbDriver;
             driverFieldsContainer.setVisibility(isDriver ? View.VISIBLE : View.GONE);
+            // Hide addressEdit for Driver, show for Customer
             addressEdit.setVisibility(isDriver ? View.GONE : View.VISIBLE);
 
             if (!isDriver) {
@@ -114,7 +115,7 @@ public class RegisterActivity extends AppCompatActivity {
         boolean hasAcceptedTerms = termsAgreementCheckbox.isChecked();
         boolean isDriver = "driver".equals(role);
 
-        if (role.isEmpty() || name.isEmpty() || contactNumber.isEmpty()
+        if (role.isEmpty() || name.isEmpty() || contactNumber.isEmpty() 
                 || email.isEmpty() || password.isEmpty() || confirmPassword.isEmpty()) {
             Toast.makeText(this, "Please fill all fields", Toast.LENGTH_SHORT).show();
             return;
@@ -141,7 +142,7 @@ public class RegisterActivity extends AppCompatActivity {
         }
 
         if (!isDriver && !deliveryAddress.matches(ADDRESS_REGEX)) {
-            Toast.makeText(this, "Delivery address contains invalid special characters", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Address contains invalid special characters", Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -170,6 +171,7 @@ public class RegisterActivity extends AppCompatActivity {
             postData.put("role", role);
             postData.put("status", "customer".equals(role) ? "active" : "pending");
             postData.put("delivery_address", isDriver ? "" : deliveryAddress);
+            postData.put("address", isDriver ? "" : deliveryAddress);
             if (isDriver) {
                 postData.put("license_number", licenseNumber);
                 postData.put("vehicle_type", vehicleType);

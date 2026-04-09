@@ -137,6 +137,11 @@ public class LoginActivity extends AppCompatActivity {
                             findFirstStringForKeys(data, "delivery_address", "address"),
                             findFirstStringForKeys(response, "delivery_address", "address")
                         );
+                        String contactNumber = firstNonEmpty(
+                            findFirstStringForKeys(user, "contact_number", "phone", "contact"),
+                            findFirstStringForKeys(data, "contact_number", "phone", "contact"),
+                            findFirstStringForKeys(response, "contact_number", "phone", "contact")
+                        );
 
                         prefs.edit()
                             .putString("api_token", apiToken)
@@ -144,6 +149,7 @@ public class LoginActivity extends AppCompatActivity {
                             .putString("user_role", role)
                             .putString("user_email", email)
                             .putString("delivery_address", deliveryAddress)
+                            .putString("contact_number", contactNumber)
                             .putString("vehicle_type", vehicleType)
                             .apply();
                         if (isDriver) {
