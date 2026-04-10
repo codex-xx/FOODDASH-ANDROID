@@ -41,4 +41,10 @@
     <string name="enter_otp_code">Please enter the OTP code</string>
     <string name="otp_sent_success">OTP sent to your email</string>
     <string name="otp_verified_success">OTP verified. Creating account...</string>
+
+    <string-array name="vehicle_types">
+        <item>@string/vehicle_motorcycle</item>
+        <item>@string/vehicle_tricycle</item>
+        <item>@string/vehicle_cab</item>
+    </string-array>
 </resources>

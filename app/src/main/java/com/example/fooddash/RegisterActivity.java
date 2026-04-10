@@ -8,12 +8,14 @@ import android.text.TextWatcher;
 import android.util.Patterns;
 import android.util.Log;
 import android.view.View;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
+import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -38,7 +40,7 @@ public class RegisterActivity extends AppCompatActivity {
 
     EditText nameEdit, contactEdit, addressEdit, emailEdit, otpEdit, passwordEdit, confirmPasswordEdit;
     EditText licenseNumberEdit;
-    RadioGroup vehicleTypeGroup;
+    Spinner vehicleTypeSpinner;
     CheckBox termsAgreementCheckbox;
     TextView viewTermsText;
     LinearLayout driverFieldsContainer;
@@ -63,7 +65,7 @@ public class RegisterActivity extends AppCompatActivity {
         addressEdit = findViewById(R.id.addressEdit);
         driverFieldsContainer = findViewById(R.id.driverFieldsContainer);
         licenseNumberEdit = findViewById(R.id.licenseNumberEdit);
-        vehicleTypeGroup = findViewById(R.id.vehicleTypeGroup);
+        vehicleTypeSpinner = findViewById(R.id.vehicleTypeSpinner);
         termsAgreementCheckbox = findViewById(R.id.termsAgreementCheckbox);
         viewTermsText = findViewById(R.id.viewTermsText);
         emailEdit = findViewById(R.id.emailEdit);
@@ -73,6 +75,11 @@ public class RegisterActivity extends AppCompatActivity {
         btnRegister = findViewById(R.id.btnRegister);
         btnLogin = findViewById(R.id.btnLogin);
         btnSendOtp = findViewById(R.id.btnSendOtp);
+
+        ArrayAdapter<CharSequence> adapter = ArrayAdapter.createFromResource(this,
+                R.array.vehicle_types, android.R.layout.simple_spinner_item);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        vehicleTypeSpinner.setAdapter(adapter);
 
         viewTermsText.setOnClickListener(v -> showTermsDialog());
 
@@ -84,7 +91,7 @@ public class RegisterActivity extends AppCompatActivity {
 
             if (!isDriver) {
                 licenseNumberEdit.setText("");
-                vehicleTypeGroup.clearCheck();
+                vehicleTypeSpinner.setSelection(0);
                 termsAgreementCheckbox.setChecked(false);
             }
         });
@@ -134,14 +141,12 @@ public class RegisterActivity extends AppCompatActivity {
         String password = passwordEdit.getText().toString().trim();
         String confirmPassword = confirmPasswordEdit.getText().toString().trim();
         String licenseNumber = licenseNumberEdit.getText().toString().trim();
-        int selectedVehicleId = vehicleTypeGroup.getCheckedRadioButtonId();
+        
         String vehicleType = "";
-        if (selectedVehicleId != -1) {
-            RadioButton selectedVehicleButton = findViewById(selectedVehicleId);
-            if (selectedVehicleButton != null) {
-                vehicleType = selectedVehicleButton.getText().toString().trim();
-            }
+        if (selectedRoleId == R.id.rbDriver && vehicleTypeSpinner.getSelectedItem() != null) {
+            vehicleType = vehicleTypeSpinner.getSelectedItem().toString().trim();
         }
+
         boolean hasAcceptedTerms = termsAgreementCheckbox.isChecked();
         boolean isDriver = "driver".equals(role);
 
@@ -366,6 +371,7 @@ public class RegisterActivity extends AppCompatActivity {
             payload.put("otp", otpCode);
             payload.put("code", otpCode);
             payload.put("purpose", "register");
+            payload.put("role", role);
             if (!TextUtils.isEmpty(otpChallengeToken)) {
                 payload.put("otp_token", otpChallengeToken);
                 payload.put("challenge_token", otpChallengeToken);
@@ -406,7 +412,7 @@ public class RegisterActivity extends AppCompatActivity {
                 error -> {
                     if (allowEndpointFallback && Constants.URL_REGISTER_VERIFY_OTP.equals(url)) {
                         verifyRegistrationOtp(
-                                Constants.URL_REGISTER_VERIFY_OTP_FALLBACK,
+                                Constants.URL_VERIFY_CODE,
                                 verifyPayload,
                                 postData,
                                 role,
@@ -418,9 +424,9 @@ public class RegisterActivity extends AppCompatActivity {
                         return;
                     }
 
-                    if (allowLegacyFallback && Constants.URL_REGISTER_VERIFY_OTP_FALLBACK.equals(url)) {
+                    if (allowLegacyFallback && Constants.URL_VERIFY_CODE.equals(url)) {
                         verifyRegistrationOtp(
-                                Constants.URL_VERIFY_CODE,
+                                Constants.BASE_URL + "verify-register-otp",
                                 verifyPayload,
                                 postData,
                                 role,

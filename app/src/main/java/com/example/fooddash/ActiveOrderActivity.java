@@ -28,7 +28,7 @@ public class ActiveOrderActivity extends AppCompatActivity {
 
     private TextView activeOrderIdText, activeCustomerName, activeCustomerContact, activeDeliveryAddress;
     private TextView activeRestaurantName, activeOrderItems, activeOrderStatus;
-    private Button btnPickedUp, btnOnTheWay, btnDelivered, btnBackToDashboard;
+    private Button btnArrived, btnPickedUp, btnOnTheWay, btnDelivered, btnBackToDashboard;
 
     private RequestQueue requestQueue;
     private JSONObject activeOrder;
@@ -55,13 +55,10 @@ public class ActiveOrderActivity extends AppCompatActivity {
         activeOrderItems = findViewById(R.id.activeOrderItems);
         activeOrderStatus = findViewById(R.id.activeOrderStatus);
 
+        btnArrived = findViewById(R.id.btnArrived);
         btnPickedUp = findViewById(R.id.btnPickedUp);
         btnOnTheWay = findViewById(R.id.btnOnTheWay);
         btnDelivered = findViewById(R.id.btnDelivered);
-        
-        Button btnArrived = findViewById(R.id.btnArrived);
-        if (btnArrived != null) btnArrived.setVisibility(View.GONE);
-
         btnBackToDashboard = findViewById(R.id.btnBackToDashboard);
 
         String orderJson = getIntent().getStringExtra("order_json");
@@ -79,6 +76,9 @@ public class ActiveOrderActivity extends AppCompatActivity {
             finish();
         }
 
+        if (btnArrived != null) {
+            btnArrived.setOnClickListener(v -> updateOrderStatus(Constants.STATUS_ARRIVED_RESTAURANT));
+        }
         btnPickedUp.setOnClickListener(v -> updateOrderStatus(Constants.STATUS_PICKED_UP));
         btnOnTheWay.setOnClickListener(v -> updateOrderStatus(Constants.STATUS_ON_THE_WAY));
         btnDelivered.setOnClickListener(v -> updateOrderStatus(Constants.STATUS_DELIVERED));
@@ -146,7 +146,6 @@ public class ActiveOrderActivity extends AppCompatActivity {
         activeOrderIdText.setText("Order #" + orderId);
         activeCustomerName.setText(activeOrder.optString("customer_name", "Customer"));
         
-        // Added more keys to check for phone number
         String contact = firstNonEmpty(
                 activeOrder.optString("customer_phone"),
                 activeOrder.optString("phone_number"),
@@ -169,7 +168,6 @@ public class ActiveOrderActivity extends AppCompatActivity {
         
         StringBuilder itemsBuilder = new StringBuilder();
         
-        // Enhanced items parsing to handle multiple items correctly
         JSONArray itemsArray = activeOrder.optJSONArray("items");
         if (itemsArray == null) itemsArray = activeOrder.optJSONArray("order_items");
         
@@ -200,7 +198,6 @@ public class ActiveOrderActivity extends AppCompatActivity {
                 }
             }
         } else {
-            // Fallback for string-based summaries
             String summary = firstNonEmpty(
                 activeOrder.optString("items_summary"), 
                 activeOrder.optString("order_details"),
@@ -214,7 +211,7 @@ public class ActiveOrderActivity extends AppCompatActivity {
         String finalItems = itemsBuilder.toString().trim();
         activeOrderItems.setText(finalItems.isEmpty() ? "Items:\n(Loading item list...)" : "Items:\n" + finalItems);
         
-        String status = activeOrder.optString("status", "pending");
+        String status = normalizeStatus(activeOrder.optString("status", "pending"));
         activeOrderStatus.setText("Status: " + status.toUpperCase());
         
         updateButtonVisibilities(status);
@@ -229,12 +226,31 @@ public class ActiveOrderActivity extends AppCompatActivity {
         return "";
     }
 
+    private String normalizeStatus(String status) {
+        if (status == null) return "pending";
+        String n = status.toLowerCase();
+        if (n.contains("assigned")) return Constants.STATUS_ASSIGNED;
+        if (n.contains("accepted")) return Constants.STATUS_ACCEPTED;
+        if (n.contains("arrived")) return Constants.STATUS_ARRIVED_RESTAURANT;
+        if (n.contains("picked")) return Constants.STATUS_PICKED_UP;
+        if (n.contains("way") || n.contains("transit")) return Constants.STATUS_ON_THE_WAY;
+        if (n.contains("deliver")) return Constants.STATUS_DELIVERED;
+        if (n.contains("ready")) return Constants.STATUS_READY;
+        if (n.contains("prepar")) return Constants.STATUS_PREPARING;
+        return n;
+    }
+
     private void updateButtonVisibilities(String status) {
+        if (btnArrived != null) btnArrived.setVisibility(View.GONE);
         btnPickedUp.setVisibility(View.GONE);
         btnOnTheWay.setVisibility(View.GONE);
         btnDelivered.setVisibility(View.GONE);
 
-        if (Constants.STATUS_READY.equals(status)) {
+        if (Constants.STATUS_ASSIGNED.equals(status) || Constants.STATUS_ACCEPTED.equals(status)) {
+            if (btnArrived != null) btnArrived.setVisibility(View.VISIBLE);
+        } else if (Constants.STATUS_ARRIVED_RESTAURANT.equals(status) || 
+                   Constants.STATUS_READY.equals(status) || 
+                   Constants.STATUS_PREPARING.equals(status)) {
             btnPickedUp.setVisibility(View.VISIBLE);
         } else if (Constants.STATUS_PICKED_UP.equals(status)) {
             btnOnTheWay.setVisibility(View.VISIBLE);

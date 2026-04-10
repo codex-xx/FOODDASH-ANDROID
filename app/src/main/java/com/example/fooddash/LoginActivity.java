@@ -129,6 +129,13 @@ public class LoginActivity extends AppCompatActivity {
 
                         SharedPreferences prefs = getApplicationContext().getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
                         int userId = extractUserId(response, data, user);
+                        
+                        String userName = firstNonEmpty(
+                            findFirstStringForKeys(user, "name", "full_name", "username"),
+                            findFirstStringForKeys(data, "name", "full_name", "username"),
+                            findFirstStringForKeys(response, "name", "full_name", "username")
+                        );
+
                         String vehicleType = normalizeValue(firstNonEmpty(
                             findFirstStringForKeys(user, "vehicle_type", "vehicleType", "vehicle"),
                             findFirstStringForKeys(data, "vehicle_type", "vehicleType", "vehicle"),
@@ -147,6 +154,7 @@ public class LoginActivity extends AppCompatActivity {
 
                         prefs.edit()
                             .putInt("user_id", userId)
+                            .putString("user_name", userName)
                             .putString("user_role", role)
                             .putString("user_email", email)
                             .putString("delivery_address", deliveryAddress)

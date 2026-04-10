@@ -1,217 +1,206 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/light_faded_orange"
-    android:gravity="center"
-    android:orientation="vertical"
-    android:padding="24dp">
+    android:fillViewport="true">
 
-    <androidx.cardview.widget.CardView
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        app:cardBackgroundColor="@color/white"
-        app:cardCornerRadius="8dp"
-        app:cardElevation="0dp">
+        android:gravity="center"
+        android:orientation="vertical"
+        android:padding="24dp">
 
-        <LinearLayout
+        <androidx.cardview.widget.CardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="@drawable/view_border"
-            android:orientation="vertical"
-            android:padding="16dp">
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="@string/title_fooddash"
-                android:textAlignment="center"
-                android:textSize="24sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="16dp"
-                android:text="@string/register_subtitle"
-                android:textAlignment="center" />
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="@string/select_role"
-                android:textStyle="bold" />
-
-            <RadioGroup
-                android:id="@+id/roleGroup"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal">
-
-                <RadioButton
-                    android:id="@+id/rbCustomer"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/customer" />
-
-                <RadioButton
-                    android:id="@+id/rbDriver"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="16dp"
-                    android:text="@string/driver" />
-            </RadioGroup>
-
-            <EditText
-                android:id="@+id/nameEdit"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:autofillHints=""
-                android:hint="@string/name"
-                android:ems="10"/>
-
-            <EditText
-                android:id="@+id/contactEdit"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:autofillHints=""
-                android:hint="@string/contact_number"
-                android:inputType="phone" />
-
-            <EditText
-                android:id="@+id/addressEdit"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:autofillHints=""
-                android:hint="@string/delivery_address"
-                android:inputType="textPostalAddress" />
-
-            <EditText
-                android:id="@+id/emailEdit"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:autofillHints=""
-                android:hint="@string/email"
-                android:ems="10" />
-
-            <Button
-                android:id="@+id/btnSendOtp"
-                style="?attr/materialButtonOutlinedStyle"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="@string/send_code"
-                android:textColor="@color/black"
-                app:strokeColor="@color/black" />
-
-            <EditText
-                android:id="@+id/otpEdit"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:autofillHints=""
-                android:hint="@string/otp_code"
-                android:inputType="number"
-                android:maxLength="6" />
-
-            <EditText
-                android:id="@+id/passwordEdit"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:autofillHints=""
-                android:hint="@string/password"
-                android:inputType="textPassword" />
-
-            <EditText
-                android:id="@+id/confirmPasswordEdit"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:autofillHints=""
-                android:hint="@string/confirm_password"
-                android:inputType="textPassword" />
+            app:cardBackgroundColor="@color/white"
+            app:cardCornerRadius="8dp"
+            app:cardElevation="0dp">
 
             <LinearLayout
-                android:id="@+id/driverFieldsContainer"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:background="@drawable/view_border"
                 android:orientation="vertical"
-                android:visibility="gone">
-
-                <EditText
-                    android:id="@+id/licenseNumberEdit"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:autofillHints=""
-                    android:hint="@string/license_number" />
+                android:padding="16dp">
 
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="@string/vehicle_type"
+                    android:text="@string/title_fooddash"
+                    android:textAlignment="center"
+                    android:textSize="24sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="16dp"
+                    android:text="@string/register_subtitle"
+                    android:textAlignment="center" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/select_role"
                     android:textStyle="bold" />
 
                 <RadioGroup
-                    android:id="@+id/vehicleTypeGroup"
+                    android:id="@+id/roleGroup"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical">
+                    android:orientation="horizontal">
 
                     <RadioButton
-                        android:id="@+id/rbMotorcycle"
+                        android:id="@+id/rbCustomer"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="@string/vehicle_motorcycle" />
+                        android:text="@string/customer" />
 
                     <RadioButton
-                        android:id="@+id/rbTricycle"
+                        android:id="@+id/rbDriver"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="@string/vehicle_tricycle" />
-
-                    <RadioButton
-                        android:id="@+id/rbCab"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/vehicle_cab" />
+                        android:layout_marginStart="16dp"
+                        android:text="@string/driver" />
                 </RadioGroup>
 
-                <CheckBox
-                    android:id="@+id/termsAgreementCheckbox"
+                <EditText
+                    android:id="@+id/nameEdit"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:autofillHints=""
+                    android:hint="@string/name"
+                    android:ems="10"/>
+
+                <EditText
+                    android:id="@+id/contactEdit"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:autofillHints=""
+                    android:hint="@string/contact_number"
+                    android:inputType="phone" />
+
+                <EditText
+                    android:id="@+id/addressEdit"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:autofillHints=""
+                    android:hint="@string/delivery_address"
+                    android:inputType="textPostalAddress" />
+
+                <EditText
+                    android:id="@+id/emailEdit"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:autofillHints=""
+                    android:hint="@string/email"
+                    android:ems="10" />
+
+                <Button
+                    android:id="@+id/btnSendOtp"
+                    style="?attr/materialButtonOutlinedStyle"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
-                    android:text="@string/terms_of_agreement" />
+                    android:text="@string/send_code"
+                    android:textColor="@color/black"
+                    app:strokeColor="@color/black" />
 
-                <TextView
-                    android:id="@+id/viewTermsText"
-                    android:layout_width="wrap_content"
+                <EditText
+                    android:id="@+id/otpEdit"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:text="@string/view_terms_of_agreement"
-                    android:textStyle="bold" />
+                    android:autofillHints=""
+                    android:hint="@string/otp_code"
+                    android:inputType="number"
+                    android:maxLength="6" />
+
+                <EditText
+                    android:id="@+id/passwordEdit"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:autofillHints=""
+                    android:hint="@string/password"
+                    android:inputType="textPassword" />
+
+                <EditText
+                    android:id="@+id/confirmPasswordEdit"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:autofillHints=""
+                    android:hint="@string/confirm_password"
+                    android:inputType="textPassword" />
+
+                <LinearLayout
+                    android:id="@+id/driverFieldsContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <EditText
+                        android:id="@+id/licenseNumberEdit"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:autofillHints=""
+                        android:hint="@string/license_number" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="@string/vehicle_type"
+                        android:textStyle="bold" />
+
+                    <Spinner
+                        android:id="@+id/vehicleTypeSpinner"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:minHeight="48dp" />
+
+                    <CheckBox
+                        android:id="@+id/termsAgreementCheckbox"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="@string/terms_of_agreement" />
+
+                    <TextView
+                        android:id="@+id/viewTermsText"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:text="@string/view_terms_of_agreement"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <Button
+                    android:id="@+id/btnRegister"
+                    style="?attr/materialButtonOutlinedStyle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:text="@string/register"
+                    android:textColor="@color/black"
+                    app:strokeColor="@color/black" />
+
+                <Button
+                    android:id="@+id/btnLogin"
+                    style="?attr/materialButtonOutlinedStyle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/login"
+                    android:textColor="@color/black"
+                    app:strokeColor="@color/black" />
             </LinearLayout>
-
-            <Button
-                android:id="@+id/btnRegister"
-                style="?attr/materialButtonOutlinedStyle"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="@string/register"
-                android:textColor="@color/black"
-                app:strokeColor="@color/black" />
-
-            <Button
-                android:id="@+id/btnLogin"
-                style="?attr/materialButtonOutlinedStyle"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="@string/login"
-                android:textColor="@color/black"
-                app:strokeColor="@color/black" />
-        </LinearLayout>
-    </androidx.cardview.widget.CardView>
-</LinearLayout>
+        </androidx.cardview.widget.CardView>
+    </LinearLayout>
+</ScrollView>

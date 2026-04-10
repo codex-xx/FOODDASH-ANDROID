@@ -24,8 +24,10 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 public class DriverDashboard extends AppCompatActivity {
 
@@ -49,6 +51,8 @@ public class DriverDashboard extends AppCompatActivity {
     private boolean isOnline = false;
     private JSONObject incomingOrder;
     private JSONObject activeOrder;
+    
+    private final Set<Integer> rejectedOrderIds = new HashSet<>();
 
     private static final String URL_GET_PROFILE = Constants.BASE_URL + "get-profile";
 
@@ -77,12 +81,11 @@ public class DriverDashboard extends AppCompatActivity {
         
         btnViewActiveOrder = findViewById(R.id.btnArrived); 
         if (btnViewActiveOrder != null) {
-            btnViewActiveOrder.setText("View Order Details");
+            btnViewActiveOrder.setText("View Active Order Details");
             btnViewActiveOrder.setOnClickListener(v -> openActiveOrderPage());
             btnViewActiveOrder.setVisibility(View.GONE);
         }
 
-        // Initially hide other status buttons as they are managed in ActiveOrderActivity
         View btnPickedUp = findViewById(R.id.btnPickedUp);
         View btnOnTheWay = findViewById(R.id.btnOnTheWay);
         View btnDelivered = findViewById(R.id.btnDelivered);
@@ -167,7 +170,8 @@ public class DriverDashboard extends AppCompatActivity {
             return;
         }
 
-        String url = Constants.URL_ORDERS + "?for_driver=1&vehicle_type=" + getVehicleType();
+        // Try to fetch orders. We include vehicle_type to let the server filter if possible.
+        String url = Constants.URL_ORDERS + "?vehicle_type=" + getVehicleType();
         JsonObjectRequest request = new JsonObjectRequest(
                 Request.Method.GET,
                 url,
@@ -241,22 +245,41 @@ public class DriverDashboard extends AppCompatActivity {
                 continue;
             }
 
+            int orderId = order.optInt("id", order.optInt("order_id", -1));
             String status = normalizeStatus(order.optString("status", ""));
-            int orderDriverId = order.optInt("driver_id", -1);
+            
+            // Check driver_id robustly
+            int orderDriverId = -1;
+            if (!order.isNull("driver_id")) {
+                orderDriverId = order.optInt("driver_id", -1);
+            }
 
+            // 1. Check for Active Order (already assigned to this driver)
             if (driverId > 0 && orderDriverId == driverId) {
-                if (Constants.STATUS_ASSIGNED.equals(status)) {
-                    incomingOrder = order;
-                } else if (!Constants.STATUS_DELIVERED.equals(status)) {
+                if (!Constants.STATUS_DELIVERED.equals(status)) {
                     activeOrder = order;
                 }
                 continue;
             }
 
-            if ((Constants.STATUS_READY.equals(status) || Constants.STATUS_PENDING.equals(status))
-                    && vehicleMatches(order)
-                    && incomingOrder == null && orderDriverId <= 0) {
-                incomingOrder = order;
+            // 2. Check for Incoming Request
+            // We show it if it's unassigned AND the status indicates it's ready for a driver.
+            // We include PENDING as a fallback because some systems use it for "needs driver".
+            if (orderDriverId <= 0) {
+                boolean isAvailable = Constants.STATUS_ACCEPTED.equals(status) || 
+                                     Constants.STATUS_PREPARING.equals(status) || 
+                                     Constants.STATUS_READY.equals(status) ||
+                                     Constants.STATUS_PENDING.equals(status);
+                
+                if (isAvailable) {
+                    if (rejectedOrderIds.contains(orderId)) {
+                        continue;
+                    }
+                    
+                    if (vehicleMatches(order) && incomingOrder == null) {
+                        incomingOrder = order;
+                    }
+                }
             }
         }
 
@@ -293,7 +316,7 @@ public class DriverDashboard extends AppCompatActivity {
         
         String text = String.format(
                 Locale.getDefault(),
-                "NEW REQUEST: Order #%d\nFrom: %s\nStatus: %s",
+                "NEW REQUEST: Order #%d\nFrom: %s\nStatus: %s\n\nClick Accept to start delivery.",
                 orderId,
                 restaurant,
                 status
@@ -339,7 +362,10 @@ public class DriverDashboard extends AppCompatActivity {
         try {
             payload.put("order_id", orderId);
             payload.put("driver_id", getDriverId());
-            payload.put("status", Constants.STATUS_ACCEPTED); 
+            payload.put("driver_name", getDriverName());
+            payload.put("driver_phone", getDriverPhone());
+            payload.put("driver_email", getDriverEmail());
+            payload.put("status", Constants.STATUS_ASSIGNED); 
         } catch (JSONException e) {
             return;
         }
@@ -348,14 +374,7 @@ public class DriverDashboard extends AppCompatActivity {
                 Request.Method.POST,
                 Constants.URL_UPDATE_STATUS,
                 payload,
-                response -> {
-                    activeOrder = incomingOrder;
-                    incomingOrder = null;
-                    renderIncomingOrder();
-                    renderActiveOrder();
-                    // Just refresh the dashboard, the user can click "View Order Details" now
-                    Toast.makeText(this, "Order Accepted!", Toast.LENGTH_SHORT).show();
-                },
+                response -> handleAcceptSuccess(),
                 error -> acceptOrderLegacy(payload)
         ) {
             @Override
@@ -367,18 +386,24 @@ public class DriverDashboard extends AppCompatActivity {
         requestQueue.add(request);
     }
 
+    private void handleAcceptSuccess() {
+        if (incomingOrder == null) return;
+        
+        activeOrder = incomingOrder;
+        incomingOrder = null;
+        renderIncomingOrder();
+        renderActiveOrder();
+        
+        Toast.makeText(this, "Order Accepted! Redirecting to details...", Toast.LENGTH_SHORT).show();
+        openActiveOrderPage();
+    }
+
     private void acceptOrderLegacy(JSONObject payload) {
         JsonObjectRequest request = new JsonObjectRequest(
                 Request.Method.POST,
                 Constants.URL_UPDATE_ORDER_STATUS_LEGACY,
                 payload,
-                response -> {
-                    activeOrder = incomingOrder;
-                    incomingOrder = null;
-                    renderIncomingOrder();
-                    renderActiveOrder();
-                    Toast.makeText(this, "Order Accepted!", Toast.LENGTH_SHORT).show();
-                },
+                response -> handleAcceptSuccess(),
                 error -> Toast.makeText(this, "Failed to accept order", Toast.LENGTH_SHORT).show()
         ) {
             @Override
@@ -397,6 +422,11 @@ public class DriverDashboard extends AppCompatActivity {
     }
 
     private void rejectCurrentOrder() {
+        if (incomingOrder != null) {
+            int orderId = incomingOrder.optInt("id", incomingOrder.optInt("order_id", -1));
+            rejectedOrderIds.add(orderId);
+        }
+        
         incomingOrder = null;
         renderIncomingOrder();
         Toast.makeText(this, "Order rejected", Toast.LENGTH_SHORT).show();
@@ -404,6 +434,18 @@ public class DriverDashboard extends AppCompatActivity {
 
     private int getDriverId() {
         return getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getInt("user_id", -1);
+    }
+
+    private String getDriverName() {
+        return getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getString("user_name", "Driver");
+    }
+
+    private String getDriverPhone() {
+        return getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getString("contact_number", "");
+    }
+    
+    private String getDriverEmail() {
+        return getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getString("user_email", "");
     }
 
     private String getVehicleType() {
@@ -421,7 +463,7 @@ public class DriverDashboard extends AppCompatActivity {
 
     private String normalizeStatus(String status) {
         String normalized = normalizeValue(status);
-        if (normalized.contains("accepted")) return Constants.STATUS_ACCEPTED;
+        if (normalized.contains("accepted") || normalized.contains("confirm")) return Constants.STATUS_ACCEPTED;
         if (normalized.contains("prepar")) return Constants.STATUS_PREPARING;
         if (normalized.contains("ready")) return Constants.STATUS_READY;
         if (normalized.contains("assigned")) return Constants.STATUS_ASSIGNED;
