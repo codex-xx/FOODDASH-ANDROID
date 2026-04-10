@@ -35,7 +35,8 @@ public class Constants {
     public static final String URL_PLACE_ORDER_LEGACY = BASE_URL + "place_order.php";
     public static final String URL_GET_ORDERS_LEGACY = BASE_URL + "get_orders.php";
     public static final String URL_GET_DRIVER_ORDERS_LEGACY = BASE_URL + "get_driver_orders.php";
-    public static final String URL_UPDATE_ORDER_STATUS_LEGACY = BASE_URL + "update_order_status.php";
+    public static final String URL_UPDATE_ORDER_STATUS_LEGACY = BASE_URL + "update_status.php";
+    public static final String URL_DRIVER_ACCEPT_ORDER_LEGACY = BASE_URL + "driver/accept_order.php";
 
     // Canonical order statuses
     public static final String STATUS_PENDING = "pending";

@@ -26,6 +26,9 @@ public final class AuthSessionManager {
     private static final String KEY_TOKEN_TYPE = "token_type";
     private static final String KEY_EXPIRES_AT = "expires_at_epoch_seconds";
 
+    // Clock skew buffer in seconds (e.g., 60 seconds) to avoid using tokens that are about to expire.
+    private static final int EXPIRATION_BUFFER_SECONDS = 60;
+
     private AuthSessionManager() {
     }
 
@@ -71,6 +74,7 @@ public final class AuthSessionManager {
         }
 
         if (isTokenExpired(securePrefs, token)) {
+            Log.w(TAG, "Access token is expired (or will expire within buffer).");
             return "";
         }
 
@@ -166,15 +170,16 @@ public final class AuthSessionManager {
     }
 
     private static boolean isTokenExpired(SharedPreferences securePrefs, String token) {
-        long now = System.currentTimeMillis() / 1000L;
+        // Add a buffer to 'now' to handle clock skew and ensure token is valid for the duration of the request.
+        long nowWithBuffer = (System.currentTimeMillis() / 1000L) + EXPIRATION_BUFFER_SECONDS;
         long expiresAt = securePrefs.getLong(KEY_EXPIRES_AT, -1L);
 
         if (expiresAt > 0) {
-            return now >= expiresAt;
+            return nowWithBuffer >= expiresAt;
         }
 
         Long expFromJwt = parseJwtExp(token);
-        return expFromJwt != null && now >= expFromJwt;
+        return expFromJwt != null && nowWithBuffer >= expFromJwt;
     }
 
     private static Long parseJwtExp(String token) {

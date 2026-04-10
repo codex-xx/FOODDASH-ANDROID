@@ -254,28 +254,35 @@ public class DriverDashboard extends AppCompatActivity {
                 orderDriverId = order.optInt("driver_id", -1);
             }
 
-            // 1. Check for Active Order (already assigned to this driver)
-            if (driverId > 0 && orderDriverId == driverId) {
+            // Statuses that imply the driver has already accepted and the order is now "Active"
+            boolean isAcceptedByDriver = Constants.STATUS_ASSIGNED.equals(status) || 
+                                        Constants.STATUS_ARRIVED_RESTAURANT.equals(status) || 
+                                        Constants.STATUS_PICKED_UP.equals(status) || 
+                                        Constants.STATUS_ON_THE_WAY.equals(status);
+
+            // 1. ACTIVE ORDER: Must be assigned to me AND have an accepted status (ASSIGNED or later)
+            if (driverId > 0 && orderDriverId == driverId && isAcceptedByDriver) {
                 if (!Constants.STATUS_DELIVERED.equals(status)) {
                     activeOrder = order;
                 }
                 continue;
             }
 
-            // 2. Check for Incoming Request
-            // We show it if it's unassigned AND the status indicates it's ready for a driver.
-            // We include PENDING as a fallback because some systems use it for "needs driver".
-            if (orderDriverId <= 0) {
-                boolean isAvailable = Constants.STATUS_ACCEPTED.equals(status) || 
-                                     Constants.STATUS_PREPARING.equals(status) || 
-                                     Constants.STATUS_READY.equals(status) ||
-                                     Constants.STATUS_PENDING.equals(status);
+            // 2. INCOMING REQUEST:
+            // Status must be one that is awaiting driver assignment or confirmation
+            boolean isAwaitingDriver = Constants.STATUS_ACCEPTED.equals(status) || 
+                                       Constants.STATUS_PREPARING.equals(status) || 
+                                       Constants.STATUS_READY.equals(status) ||
+                                       Constants.STATUS_PENDING.equals(status);
+
+            if (isAwaitingDriver) {
+                if (rejectedOrderIds.contains(orderId)) {
+                    continue;
+                }
                 
-                if (isAvailable) {
-                    if (rejectedOrderIds.contains(orderId)) {
-                        continue;
-                    }
-                    
+                // Show as incoming if it's unassigned OR if it's assigned to me but I haven't clicked "Accept" yet
+                // (i.e. status is still in the "Awaiting" phase, not yet "ASSIGNED")
+                if (orderDriverId <= 0 || (driverId > 0 && orderDriverId == driverId)) {
                     if (vehicleMatches(order) && incomingOrder == null) {
                         incomingOrder = order;
                     }
@@ -357,25 +364,34 @@ public class DriverDashboard extends AppCompatActivity {
             return;
         }
 
+        String token = AuthSessionManager.getValidAccessTokenOrNull(this);
         JSONObject payload = new JSONObject();
         int orderId = incomingOrder.optInt("id", incomingOrder.optInt("order_id", -1));
         try {
             payload.put("order_id", orderId);
+            payload.put("orderid", orderId);
             payload.put("driver_id", getDriverId());
+            payload.put("user_id", getDriverId());
             payload.put("driver_name", getDriverName());
             payload.put("driver_phone", getDriverPhone());
             payload.put("driver_email", getDriverEmail());
-            payload.put("status", Constants.STATUS_ASSIGNED); 
+            payload.put("status", Constants.STATUS_ASSIGNED);
+            payload.put("api_token", token);
+            payload.put("token", token);
         } catch (JSONException e) {
             return;
         }
 
+        // Try driver/accept_order first
         JsonObjectRequest request = new JsonObjectRequest(
                 Request.Method.POST,
-                Constants.URL_UPDATE_STATUS,
+                Constants.URL_DRIVER_ACCEPT_ORDER,
                 payload,
                 response -> handleAcceptSuccess(),
-                error -> acceptOrderLegacy(payload)
+                error -> {
+                    Log.d(TAG, "Accept order specialized failed, trying legacy accept_order.php", error);
+                    acceptOrderLegacySpecialized(payload);
+                }
         ) {
             @Override
             public Map<String, String> getHeaders() {
@@ -383,6 +399,44 @@ public class DriverDashboard extends AppCompatActivity {
             }
         };
 
+        requestQueue.add(request);
+    }
+
+    private void acceptOrderLegacySpecialized(JSONObject payload) {
+        JsonObjectRequest request = new JsonObjectRequest(
+                Request.Method.POST,
+                Constants.URL_DRIVER_ACCEPT_ORDER_LEGACY,
+                payload,
+                response -> handleAcceptSuccess(),
+                error -> {
+                    Log.d(TAG, "Legacy accept_order.php failed, trying general update_status", error);
+                    acceptOrderViaGeneralStatus(payload);
+                }
+        ) {
+            @Override
+            public Map<String, String> getHeaders() {
+                return buildAuthHeaders();
+            }
+        };
+        requestQueue.add(request);
+    }
+
+    private void acceptOrderViaGeneralStatus(JSONObject payload) {
+        JsonObjectRequest request = new JsonObjectRequest(
+                Request.Method.POST,
+                Constants.URL_UPDATE_STATUS,
+                payload,
+                response -> handleAcceptSuccess(),
+                error -> {
+                    Log.d(TAG, "General update_status failed, trying legacy update_status.php", error);
+                    acceptOrderLegacy(payload);
+                }
+        ) {
+            @Override
+            public Map<String, String> getHeaders() {
+                return buildAuthHeaders();
+            }
+        };
         requestQueue.add(request);
     }
 
@@ -404,7 +458,10 @@ public class DriverDashboard extends AppCompatActivity {
                 Constants.URL_UPDATE_ORDER_STATUS_LEGACY,
                 payload,
                 response -> handleAcceptSuccess(),
-                error -> Toast.makeText(this, "Failed to accept order", Toast.LENGTH_SHORT).show()
+                error -> {
+                    Log.e(TAG, "All accept order attempts failed", error);
+                    Toast.makeText(this, "Failed to accept order. Check backend endpoints.", Toast.LENGTH_SHORT).show();
+                }
         ) {
             @Override
             public Map<String, String> getHeaders() {

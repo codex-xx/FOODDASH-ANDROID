@@ -279,14 +279,21 @@ public class ActiveOrderActivity extends AppCompatActivity {
             return;
         }
 
+        // Try driver/accept_order first if status is assigned, as it's the more robust endpoint on some backends
+        String primaryUrl = (Constants.STATUS_ASSIGNED.equals(status)) ? Constants.URL_DRIVER_ACCEPT_ORDER : Constants.URL_UPDATE_STATUS;
+
         JsonObjectRequest request = new JsonObjectRequest(
                 Request.Method.POST,
-                Constants.URL_UPDATE_STATUS,
+                primaryUrl,
                 payload,
                 response -> handleStatusUpdateSuccess(status),
                 error -> {
                     Log.e(TAG, "Update status failed, trying fallbacks", error);
-                    updateStatusFallbackPHP(payload, status);
+                    if (primaryUrl.equals(Constants.URL_DRIVER_ACCEPT_ORDER)) {
+                        updateStatusViaGeneralEndpoint(payload, status);
+                    } else {
+                        updateStatusFallbackPHP(payload, status);
+                    }
                 }
         ) {
             @Override
@@ -298,14 +305,13 @@ public class ActiveOrderActivity extends AppCompatActivity {
         requestQueue.add(request);
     }
 
-    private void updateStatusFallbackPHP(JSONObject payload, String status) {
-        String fallbackUrl = Constants.BASE_URL.replace("/api/", "/api/update_status.php");
+    private void updateStatusViaGeneralEndpoint(JSONObject payload, String status) {
         JsonObjectRequest request = new JsonObjectRequest(
                 Request.Method.POST,
-                fallbackUrl,
+                Constants.URL_UPDATE_STATUS,
                 payload,
                 response -> handleStatusUpdateSuccess(status),
-                error -> updateStatusLegacy(payload, status)
+                error -> updateStatusFallbackPHP(payload, status)
         ) {
             @Override
             public Map<String, String> getHeaders() {
@@ -315,10 +321,12 @@ public class ActiveOrderActivity extends AppCompatActivity {
         requestQueue.add(request);
     }
 
-    private void updateStatusLegacy(JSONObject payload, String status) {
+    private void updateStatusFallbackPHP(JSONObject payload, String status) {
+        // Many PHP backends serve at update_status.php without /api/ prefix if routing isn't used
+        String fallbackUrl = Constants.URL_UPDATE_ORDER_STATUS_LEGACY;
         JsonObjectRequest request = new JsonObjectRequest(
                 Request.Method.POST,
-                Constants.URL_UPDATE_ORDER_STATUS_LEGACY,
+                fallbackUrl,
                 payload,
                 response -> handleStatusUpdateSuccess(status),
                 error -> {

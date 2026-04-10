@@ -226,6 +226,13 @@ public class CustomerDashboard extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        loadGlobalCart();
+        updateCartButtonState();
+        if (restaurantId > 0) {
+            fetchMenu(false);
+        } else {
+            fetchMixedMenuPreview(false);
+        }
         fetchRestaurants(true);
         startMenuPolling();
         startOrderPolling();
@@ -574,19 +581,18 @@ public class CustomerDashboard extends AppCompatActivity {
         return c;
     }
 
-    private void syncProductWithGlobalCart(Product product, int targetResId) {
-        String key = "res:" + targetResId + ":id:" + product.getId();
+    private void syncProductWithGlobalCart(Product product) {
+        String key = "res:" + product.restaurantId + ":id:" + product.getId();
         if (product.quantity <= 0) globalCart.remove(key);
         else {
-            String resName = "";
-            if (selectedRestaurantPosition >= 0) resName = restaurantList.get(selectedRestaurantPosition).getName();
-            globalCart.put(key, new CartEntry(targetResId, resName, product.id, product.name, product.price, product.quantity));
+            globalCart.put(key, new CartEntry(product.restaurantId, product.restaurantName, product.id, product.name, product.price, product.quantity));
         }
         saveGlobalCart();
         updateCartButtonState();
     }
 
     private void loadGlobalCart() {
+        globalCart.clear();
         SharedPreferences prefs = getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
         try {
             JSONArray array = new JSONArray(prefs.getString("global_cart_json", "[]"));
@@ -635,7 +641,7 @@ public class CustomerDashboard extends AppCompatActivity {
         requestMenuArrayForRestaurant(resId, response -> {
             for (int i = 0; i < Math.min(response.length(), 6); i++) {
                 JSONObject obj = response.optJSONObject(i);
-                if (obj != null) productList.add(parseProductFromJson(obj, resName, true));
+                if (obj != null) productList.add(parseProductFromJson(obj, resId, resName, true));
             }
             loadingProgressBar.setVisibility(View.GONE);
             adapter.notifyDataSetChanged();
@@ -649,13 +655,16 @@ public class CustomerDashboard extends AppCompatActivity {
 
     private void fetchMenu(boolean showBlockingLoader) {
         if (showBlockingLoader) loadingProgressBar.setVisibility(View.VISIBLE);
-        requestMenuArrayForRestaurant(restaurantId, response -> {
+        final int currentResId = restaurantId;
+        final String currentResName = selectedRestaurantPosition >= 0 ? restaurantList.get(selectedRestaurantPosition).name : "";
+        
+        requestMenuArrayForRestaurant(currentResId, response -> {
             productList.clear();
             for (int i = 0; i < response.length(); i++) {
                 JSONObject obj = response.optJSONObject(i);
                 if (obj != null) {
-                    Product p = parseProductFromJson(obj, null, false);
-                    CartEntry ce = globalCart.get("res:" + restaurantId + ":id:" + p.id);
+                    Product p = parseProductFromJson(obj, currentResId, currentResName, false);
+                    CartEntry ce = globalCart.get("res:" + currentResId + ":id:" + p.id);
                     if (ce != null) p.quantity = ce.quantity;
                     productList.add(p);
                 }
@@ -846,14 +855,14 @@ public class CustomerDashboard extends AppCompatActivity {
         return headers;
     }
 
-    private Product parseProductFromJson(JSONObject item, String resName, boolean includeRes) {
+    private Product parseProductFromJson(JSONObject item, int resId, String resName, boolean includeRes) {
         int id = item.optInt("id", -1);
         String name = item.optString("name", "Item");
         String desc = item.optString("description", "");
         double price = item.optDouble("price", 0.0);
         String img = normalizeImageUrl(item.optString("image_url", item.optString("image", "")));
         if (includeRes && !TextUtils.isEmpty(resName)) desc = "From " + resName + " - " + desc;
-        return new Product(id, name, desc, price, img, true);
+        return new Product(id, name, desc, price, img, true, resId, resName);
     }
 
     private String normalizeImageUrl(String url) {
@@ -895,8 +904,11 @@ public class CustomerDashboard extends AppCompatActivity {
         String imageUrl;
         boolean isAvailable;
         int quantity = 0;
-        Product(int id, String name, String description, double price, String imageUrl, boolean available) {
+        int restaurantId;
+        String restaurantName;
+        Product(int id, String name, String description, double price, String imageUrl, boolean available, int resId, String resName) {
             this.id = id; this.name = name; this.description = description; this.price = price; this.imageUrl = imageUrl; this.isAvailable = available;
+            this.restaurantId = resId; this.restaurantName = resName;
         }
         int getId() { return id; }
         String getName() { return name; }
@@ -995,8 +1007,8 @@ public class CustomerDashboard extends AppCompatActivity {
             Product pr = list.get(p);
             h.name.setText(pr.name); h.desc.setText(pr.description); h.price.setText("₱" + String.format("%.2f", pr.price)); h.qty.setText(String.valueOf(pr.quantity));
             Glide.with(h.itemView).load(pr.imageUrl).into(h.img);
-            h.plus.setOnClickListener(v -> { pr.quantity++; h.qty.setText(String.valueOf(pr.quantity)); syncProductWithGlobalCart(pr, restaurantId); });
-            h.minus.setOnClickListener(v -> { if (pr.quantity > 0) { pr.quantity--; h.qty.setText(String.valueOf(pr.quantity)); syncProductWithGlobalCart(pr, restaurantId); } });
+            h.plus.setOnClickListener(v -> { pr.quantity++; h.qty.setText(String.valueOf(pr.quantity)); syncProductWithGlobalCart(pr); });
+            h.minus.setOnClickListener(v -> { if (pr.quantity > 0) { pr.quantity--; h.qty.setText(String.valueOf(pr.quantity)); syncProductWithGlobalCart(pr); } });
         }
         @Override public int getItemCount() { return list.size(); }
         class ViewHolder extends RecyclerView.ViewHolder {

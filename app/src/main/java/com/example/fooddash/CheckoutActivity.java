@@ -13,14 +13,19 @@ import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
+import com.android.volley.NetworkResponse;
 import com.android.volley.Request;
 import com.android.volley.RequestQueue;
+import com.android.volley.VolleyError;
+import com.android.volley.toolbox.HttpHeaderParser;
 import com.android.volley.toolbox.JsonObjectRequest;
+import com.android.volley.toolbox.StringRequest;
 import com.android.volley.toolbox.Volley;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -173,11 +178,18 @@ public class CheckoutActivity extends AppCompatActivity {
         }
 
         OrderGroup group = orderGroups.get(index);
+        
+        // Final safety check: if restaurantId is still invalid, we cannot proceed with this group.
+        if (group.restaurantId <= 0) {
+            Log.e(TAG, "Skipping group due to invalid restaurant_id: " + group.restaurantName);
+            placeOrderGroup(index + 1, userId, token, address, deliveryType, deliveryFee, prefs);
+            return;
+        }
+
         double total = group.subtotal + deliveryFee;
 
         JSONObject payload = new JSONObject();
         try {
-            // "Kitchen Sink" payload to satisfy all possible backend validations (Fixes 422)
             payload.put("user_id", userId);
             payload.put("customer_id", userId);
             payload.put("restaurant_id", group.restaurantId);
@@ -185,12 +197,14 @@ public class CheckoutActivity extends AppCompatActivity {
             payload.put("address", address);
             payload.put("delivery_type", deliveryType);
             payload.put("vehicle_type", deliveryType);
+            payload.put("delivery_method", deliveryType);
             payload.put("delivery_fee", deliveryFee);
             payload.put("fee", deliveryFee);
             payload.put("subtotal", group.subtotal);
             payload.put("total_amount", total);
             payload.put("total", total);
             payload.put("grand_total", total);
+            payload.put("total_price", total);
             payload.put("status", "pending");
             payload.put("payment_method", "cod");
             payload.put("payment_type", "cod");
@@ -206,6 +220,7 @@ public class CheckoutActivity extends AppCompatActivity {
                 JSONObject mapped = new JSONObject();
                 int mid = original.optInt("menu_item_id", original.optInt("id", -1));
                 mapped.put("menu_item_id", mid);
+                mapped.put("id", mid);
                 mapped.put("item_id", mid);
                 mapped.put("food_id", mid);
                 mapped.put("product_id", mid);
@@ -217,7 +232,15 @@ public class CheckoutActivity extends AppCompatActivity {
                 mappedItems.put(mapped);
             }
             payload.put("items", mappedItems);
-            payload.put("order_items", mappedItems); 
+            payload.put("order_items", mappedItems);
+            payload.put("cart", mappedItems);
+            
+            if (mappedItems.length() == 0) {
+                 Log.e(TAG, "Skipping group due to empty items: " + group.restaurantName);
+                 placeOrderGroup(index + 1, userId, token, address, deliveryType, deliveryFee, prefs);
+                 return;
+            }
+            
         } catch (Exception e) {
             Toast.makeText(this, "Error building request", Toast.LENGTH_SHORT).show();
             return;
@@ -234,7 +257,7 @@ public class CheckoutActivity extends AppCompatActivity {
                     placeOrderGroup(index + 1, userId, token, address, deliveryType, deliveryFee, prefs);
                 },
                 error -> {
-                    Log.e(TAG, "Primary API 422/Error: " + error.toString());
+                    logVolleyError("Primary API Error", error);
                     // Fallback to legacy
                     placeOrderGroupLegacy(index, userId, token, address, deliveryType, deliveryFee, payload, prefs);
                 }
@@ -245,6 +268,7 @@ public class CheckoutActivity extends AppCompatActivity {
                 headers.put("Authorization", "Bearer " + token);
                 headers.put("Accept", "application/json");
                 headers.put("Content-Type", "application/json");
+                headers.put("X-Requested-With", "XMLHttpRequest");
                 return headers;
             }
         };
@@ -252,41 +276,79 @@ public class CheckoutActivity extends AppCompatActivity {
         requestQueue.add(request);
     }
 
-    private void placeOrderGroupLegacy(int index, int userId, String token, String address, String deliveryType, double deliveryFee, JSONObject payload, SharedPreferences prefs) {
-        // Appending token to URL as fallback for legacy scripts that fail to read headers (Fixes 403)
+    private void placeOrderGroupLegacy(int index, int userId, String token, String address, String deliveryType, double deliveryFee, JSONObject jsonPayload, SharedPreferences prefs) {
         String legacyUrl = Constants.URL_PLACE_ORDER_LEGACY;
         if (!legacyUrl.contains("api_token=")) {
-            legacyUrl += (legacyUrl.contains("?") ? "&" : "?") + "api_token=" + token;
+            legacyUrl += (legacyUrl.contains("?") ? "&" : "?") + "api_token=" + android.net.Uri.encode(token);
         }
 
-        JsonObjectRequest request = new JsonObjectRequest(
+        OrderGroup group = orderGroups.get(index);
+        final double total = group.subtotal + deliveryFee;
+
+        StringRequest request = new StringRequest(
                 Request.Method.POST,
                 legacyUrl,
-                payload,
                 response -> {
-                    collectOrderId(response);
+                    try {
+                        JSONObject jsonResponse = new JSONObject(response);
+                        collectOrderId(jsonResponse);
+                    } catch (Exception e) {
+                        Log.d(TAG, "Legacy response not JSON: " + response);
+                    }
                     successfulGroupCount++;
-                    removeOrderedItemsFromGlobalCart(orderGroups.get(index).items);
+                    removeOrderedItemsFromGlobalCart(group.items);
                     placeOrderGroup(index + 1, userId, token, address, deliveryType, deliveryFee, prefs);
                 },
                 error -> {
-                    Log.e(TAG, "Legacy API 403/Error: " + error.toString());
-                    // Attempt next group anyway
+                    logVolleyError("Legacy API Error", error);
+                    // If everything fails, still try next group
                     placeOrderGroup(index + 1, userId, token, address, deliveryType, deliveryFee, prefs);
                 }
         ) {
             @Override
+            protected Map<String, String> getParams() {
+                Map<String, String> params = new HashMap<>();
+                params.put("user_id", String.valueOf(userId));
+                params.put("customer_id", String.valueOf(userId));
+                params.put("restaurant_id", String.valueOf(group.restaurantId));
+                params.put("address", address);
+                params.put("delivery_address", address);
+                params.put("delivery_type", deliveryType);
+                params.put("delivery_fee", String.format(Locale.US, "%.2f", deliveryFee));
+                params.put("subtotal", String.format(Locale.US, "%.2f", group.subtotal));
+                params.put("total", String.format(Locale.US, "%.2f", total));
+                params.put("total_amount", String.format(Locale.US, "%.2f", total));
+                params.put("payment_method", "cod");
+                params.put("status", "pending");
+                
+                JSONArray items = jsonPayload.optJSONArray("items");
+                if (items != null) {
+                    params.put("items", items.toString());
+                    params.put("order_items", items.toString());
+                }
+                return params;
+            }
+
+            @Override
             public Map<String, String> getHeaders() {
                 Map<String, String> headers = new HashMap<>();
                 headers.put("Authorization", "Bearer " + token);
-                headers.put("X-Authorization", "Bearer " + token);
-                headers.put("api-token", token);
-                headers.put("Accept", "application/json");
                 return headers;
             }
         };
 
         requestQueue.add(request);
+    }
+
+    private void logVolleyError(String prefix, VolleyError error) {
+        String message = prefix + ": " + error.toString();
+        if (error.networkResponse != null) {
+            try {
+                String body = new String(error.networkResponse.data, StandardCharsets.UTF_8);
+                message += " | Code: " + error.networkResponse.statusCode + " | Body: " + body;
+            } catch (Exception ignored) {}
+        }
+        Log.e(TAG, message);
     }
 
     private void collectOrderId(JSONObject response) {
@@ -300,7 +362,7 @@ public class CheckoutActivity extends AppCompatActivity {
 
     private void onAllGroupsPlaced() {
         if (successfulGroupCount <= 0) {
-            Toast.makeText(this, "Checkout failed. Please try logging in again.", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "Checkout failed. Please check the network.", Toast.LENGTH_LONG).show();
             return;
         }
 
@@ -322,7 +384,7 @@ public class CheckoutActivity extends AppCompatActivity {
                 JSONObject item = array.optJSONObject(i);
                 if (item == null) continue;
 
-                int itemResId = item.optInt("restaurant_id", restaurantId);
+                int itemResId = item.optInt("restaurant_id", -1);
                 String itemResName = item.optString("restaurant_name", "Restaurant " + itemResId);
                 int qty = item.optInt("quantity", 0);
                 double price = item.optDouble("price", 0.0);
@@ -331,13 +393,28 @@ public class CheckoutActivity extends AppCompatActivity {
                 String key = buildRestaurantKey(itemResId, itemResName);
                 OrderGroup group = grouped.get(key);
                 if (group == null) {
-                    group = new OrderGroup(itemResId > 0 ? itemResId : restaurantId, itemResName);
+                    group = new OrderGroup(itemResId, itemResName);
                     grouped.put(key, group);
                 }
+                
+                // If the group had an invalid ID (-1) but this item has a valid one, update the group.
+                if (group.restaurantId <= 0 && itemResId > 0) {
+                    group.restaurantId = itemResId;
+                }
+                
                 group.items.put(item);
                 group.subtotal += qty * price;
             }
-        } catch (Exception ignored) {}
+            
+            // Final fallback: if any group still has no valid ID, try using the top-level restaurantId
+            for (OrderGroup g : grouped.values()) {
+                if (g.restaurantId <= 0 && restaurantId > 0) {
+                    g.restaurantId = restaurantId;
+                }
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error building order groups", e);
+        }
         orderGroups.addAll(grouped.values());
     }
 
