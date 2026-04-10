@@ -4,7 +4,7 @@ public class Constants {
     // IMPORTANT: Make sure this is the correct IP address for your XAMPP server.
     // Try using "10.0.2.2" if you are using the Android Emulator.
     // Use your actual IP (e.g., 192.168.1.7) if using a physical device.
-    public static final String IP_ADDRESS = "192.168.100.88";
+    public static final String IP_ADDRESS = "192.168.1.129";
 
     public static final String BASE_URL = "http://" + IP_ADDRESS + "/FoodDash/api/";
     public static final String URL_SEND_NOTIFICATION_EMAIL = BASE_URL + "send-notification-email";
@@ -12,6 +12,11 @@ public class Constants {
     // Auth
     public static final String URL_LOGIN = BASE_URL + "login";
     public static final String URL_REGISTER = BASE_URL + "register";
+    public static final String URL_REGISTER_SEND_OTP = BASE_URL + "register/send-otp";
+    public static final String URL_REGISTER_SEND_OTP_FALLBACK = BASE_URL + "send-register-otp";
+    public static final String URL_REGISTER_VERIFY_OTP = BASE_URL + "register/verify-otp";
+    public static final String URL_REGISTER_VERIFY_OTP_FALLBACK = BASE_URL + "verify-register-otp";
+    public static final String URL_VERIFY_CODE = BASE_URL + "verify-code";
     public static final String URL_MFA_VERIFY = BASE_URL + "mfa/verify";
     public static final String URL_MFA_VERIFY_FALLBACK = BASE_URL + "verify-mfa";
     public static final String PASSWORD_HASH_ALGORITHM = "argon2id";

@@ -95,6 +95,25 @@
                 android:hint="@string/email"
                 android:ems="10" />
 
+            <Button
+                android:id="@+id/btnSendOtp"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/send_code"
+                android:textColor="@color/black"
+                app:strokeColor="@color/black" />
+
+            <EditText
+                android:id="@+id/otpEdit"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:autofillHints=""
+                android:hint="@string/otp_code"
+                android:inputType="number"
+                android:maxLength="6" />
+
             <EditText
                 android:id="@+id/passwordEdit"
                 android:layout_width="match_parent"

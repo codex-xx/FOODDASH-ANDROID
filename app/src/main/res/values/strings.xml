@@ -34,4 +34,11 @@
     <string name="mfa_code_hint">One-time code</string>
     <string name="verify_mfa">Verify and continue</string>
     <string name="password_policy_error">Password must be at least 8 characters and include uppercase, lowercase, and a number.</string>
+    <string name="send_code">Send Code</string>
+    <string name="otp_code">OTP Verification Code</string>
+    <string name="enter_valid_email">Please enter a valid email address</string>
+    <string name="send_otp_first">Please send OTP first</string>
+    <string name="enter_otp_code">Please enter the OTP code</string>
+    <string name="otp_sent_success">OTP sent to your email</string>
+    <string name="otp_verified_success">OTP verified. Creating account...</string>
 </resources>
