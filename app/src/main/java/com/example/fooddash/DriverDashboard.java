@@ -79,6 +79,7 @@ public class DriverDashboard extends AppCompatActivity {
         btnRejectOrder = findViewById(R.id.btnRejectOrder);
         btnViewHistory = findViewById(R.id.btnViewHistory);
         
+        // In this layout, btnArrived is used as the general "View Order" button for the active delivery
         btnViewActiveOrder = findViewById(R.id.btnArrived); 
         if (btnViewActiveOrder != null) {
             btnViewActiveOrder.setText("View Active Order Details");
@@ -86,6 +87,7 @@ public class DriverDashboard extends AppCompatActivity {
             btnViewActiveOrder.setVisibility(View.GONE);
         }
 
+        // Hide specific action buttons on dashboard, they are handled in ActiveOrderActivity
         View btnPickedUp = findViewById(R.id.btnPickedUp);
         View btnOnTheWay = findViewById(R.id.btnOnTheWay);
         View btnDelivered = findViewById(R.id.btnDelivered);
@@ -170,7 +172,6 @@ public class DriverDashboard extends AppCompatActivity {
             return;
         }
 
-        // Try to fetch orders. We include vehicle_type to let the server filter if possible.
         String url = Constants.URL_ORDERS + "?vehicle_type=" + getVehicleType();
         JsonObjectRequest request = new JsonObjectRequest(
                 Request.Method.GET,
@@ -248,19 +249,21 @@ public class DriverDashboard extends AppCompatActivity {
             int orderId = order.optInt("id", order.optInt("order_id", -1));
             String status = normalizeStatus(order.optString("status", ""));
             
-            // Check driver_id robustly
             int orderDriverId = -1;
             if (!order.isNull("driver_id")) {
                 orderDriverId = order.optInt("driver_id", -1);
             }
 
             // Statuses that imply the driver has already accepted and the order is now "Active"
+            // We include READY and PREPARING if it's already assigned to this driver.
             boolean isAcceptedByDriver = Constants.STATUS_ASSIGNED.equals(status) || 
                                         Constants.STATUS_ARRIVED_RESTAURANT.equals(status) || 
                                         Constants.STATUS_PICKED_UP.equals(status) || 
-                                        Constants.STATUS_ON_THE_WAY.equals(status);
+                                        Constants.STATUS_ON_THE_WAY.equals(status) ||
+                                        Constants.STATUS_READY.equals(status) ||
+                                        Constants.STATUS_PREPARING.equals(status);
 
-            // 1. ACTIVE ORDER: Must be assigned to me AND have an accepted status (ASSIGNED or later)
+            // 1. ACTIVE ORDER: Must be assigned to me AND have an accepted status
             if (driverId > 0 && orderDriverId == driverId && isAcceptedByDriver) {
                 if (!Constants.STATUS_DELIVERED.equals(status)) {
                     activeOrder = order;
@@ -269,7 +272,7 @@ public class DriverDashboard extends AppCompatActivity {
             }
 
             // 2. INCOMING REQUEST:
-            // Status must be one that is awaiting driver assignment or confirmation
+            // Status must be one that is awaiting driver assignment
             boolean isAwaitingDriver = Constants.STATUS_ACCEPTED.equals(status) || 
                                        Constants.STATUS_PREPARING.equals(status) || 
                                        Constants.STATUS_READY.equals(status) ||
@@ -280,9 +283,8 @@ public class DriverDashboard extends AppCompatActivity {
                     continue;
                 }
                 
-                // Show as incoming if it's unassigned OR if it's assigned to me but I haven't clicked "Accept" yet
-                // (i.e. status is still in the "Awaiting" phase, not yet "ASSIGNED")
-                if (orderDriverId <= 0 || (driverId > 0 && orderDriverId == driverId)) {
+                // Show as incoming if it's unassigned
+                if (orderDriverId <= 0) {
                     if (vehicleMatches(order) && incomingOrder == null) {
                         incomingOrder = order;
                     }
@@ -349,7 +351,7 @@ public class DriverDashboard extends AppCompatActivity {
                 "ACTIVE DELIVERY: Order #%d\nRestaurant: %s\nStatus: %s",
                 orderId,
                 restaurant,
-                status
+                status.replace("_", " ").toUpperCase()
         );
         activeOrderTextView.setText(text);
     }
@@ -382,7 +384,6 @@ public class DriverDashboard extends AppCompatActivity {
             return;
         }
 
-        // Try driver/accept_order first
         JsonObjectRequest request = new JsonObjectRequest(
                 Request.Method.POST,
                 Constants.URL_DRIVER_ACCEPT_ORDER,

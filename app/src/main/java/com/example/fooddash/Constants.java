@@ -2,7 +2,7 @@ package com.example.fooddash;
 
 public class Constants {
     // IMPORTANT: Make sure this is the correct IP address for your XAMPP server.
-    public static final String IP_ADDRESS = "192.168.1.7";
+    public static final String IP_ADDRESS = "192.168.1.4";
 
     public static final String BASE_URL = "http://" + IP_ADDRESS + "/FoodDash/api/";
     public static final String URL_SEND_NOTIFICATION_EMAIL = BASE_URL + "send-notification-email";
@@ -13,7 +13,7 @@ public class Constants {
     public static final String URL_REGISTER_SEND_OTP = BASE_URL + "register/send-otp";
     public static final String URL_REGISTER_SEND_OTP_FALLBACK = BASE_URL + "send-register-otp";
     
-    // Verification endpoints - using the ones that worked (no 404) but had 400 errors
+    // Verification endpoints
     public static final String URL_REGISTER_VERIFY_OTP = BASE_URL + "verify-register-otp"; 
     public static final String URL_VERIFY_CODE = BASE_URL + "verify-code";
     
@@ -44,7 +44,7 @@ public class Constants {
     public static final String STATUS_PREPARING = "preparing";
     public static final String STATUS_READY = "ready";
     public static final String STATUS_ASSIGNED = "assigned";
-    public static final String STATUS_ARRIVED_RESTAURANT = "arrived";
+    public static final String STATUS_ARRIVED_RESTAURANT = "arrived_at_restaurant";
     public static final String STATUS_PICKED_UP = "picked_up";
     public static final String STATUS_ON_THE_WAY = "on_the_way";
     public static final String STATUS_DELIVERED = "delivered";

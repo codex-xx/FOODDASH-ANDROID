@@ -13,6 +13,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import com.android.volley.Request;
 import com.android.volley.RequestQueue;
 import com.android.volley.toolbox.JsonObjectRequest;
+import com.android.volley.toolbox.StringRequest;
 import com.android.volley.toolbox.Volley;
 
 import org.json.JSONArray;
@@ -32,7 +33,7 @@ public class ActiveOrderActivity extends AppCompatActivity {
 
     private RequestQueue requestQueue;
     private JSONObject activeOrder;
-    private int orderId;
+    private int orderId = -1;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -143,7 +144,7 @@ public class ActiveOrderActivity extends AppCompatActivity {
     private void renderOrderDetails() {
         if (activeOrder == null) return;
 
-        activeOrderIdText.setText("Order #" + orderId);
+        activeOrderIdText.setText("Order #" + (orderId > 0 ? orderId : "N/A"));
         activeCustomerName.setText(activeOrder.optString("customer_name", "Customer"));
         
         String contact = firstNonEmpty(
@@ -267,33 +268,87 @@ public class ActiveOrderActivity extends AppCompatActivity {
             return;
         }
 
+        if (orderId <= 0) {
+            Toast.makeText(this, "Cannot update status: Invalid Order ID", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        String token = AuthSessionManager.getValidAccessTokenOrNull(this);
         JSONObject payload = new JSONObject();
         try {
             int driverId = getDriverId();
+            payload.put("id", orderId);
             payload.put("order_id", orderId);
             payload.put("orderid", orderId);
             payload.put("driver_id", driverId);
             payload.put("user_id", driverId);
             payload.put("status", status);
+            payload.put("order_status", status);
+            payload.put("new_status", status);
+            
+            // Add variant for arrived status
+            if (Constants.STATUS_ARRIVED_RESTAURANT.equals(status)) {
+                payload.put("status_alt", "arrived_at_restaurant");
+            }
+
+            payload.put("driver_name", getDriverName());
+            payload.put("driver_phone", getDriverPhone());
+            payload.put("driver_email", getDriverEmail());
+            payload.put("api_token", token);
+            payload.put("token", token);
         } catch (JSONException e) {
             return;
         }
 
-        // Try driver/accept_order first if status is assigned, as it's the more robust endpoint on some backends
-        String primaryUrl = (Constants.STATUS_ASSIGNED.equals(status)) ? Constants.URL_DRIVER_ACCEPT_ORDER : Constants.URL_UPDATE_STATUS;
+        tryUpdateOrderStatus(payload, status, 0);
+    }
 
+    private void tryUpdateOrderStatus(JSONObject payload, String status, int attempt) {
+        String url;
+        int method = Request.Method.POST;
+
+        switch (attempt) {
+            case 0:
+                url = (Constants.STATUS_ASSIGNED.equals(status)) ? Constants.URL_DRIVER_ACCEPT_ORDER : Constants.URL_UPDATE_STATUS;
+                break;
+            case 1:
+                url = Constants.URL_ORDERS + "/" + orderId + "/status";
+                break;
+            case 2:
+                url = Constants.URL_ORDERS + "/" + orderId;
+                method = Request.Method.PUT;
+                break;
+            case 3:
+                url = Constants.URL_UPDATE_ORDER_STATUS_LEGACY;
+                break;
+            case 4:
+                updateStatusViaFormData(status);
+                return;
+            default:
+                Log.e(TAG, "All status update attempts failed for status: " + status);
+                Toast.makeText(this, "All update attempts failed. Please check backend configuration.", Toast.LENGTH_LONG).show();
+                return;
+        }
+
+        final int currentAttempt = attempt;
+        final String finalUrl = url;
+        
         JsonObjectRequest request = new JsonObjectRequest(
-                Request.Method.POST,
-                primaryUrl,
+                method,
+                url,
                 payload,
                 response -> handleStatusUpdateSuccess(status),
                 error -> {
-                    Log.e(TAG, "Update status failed, trying fallbacks", error);
-                    if (primaryUrl.equals(Constants.URL_DRIVER_ACCEPT_ORDER)) {
-                        updateStatusViaGeneralEndpoint(payload, status);
-                    } else {
-                        updateStatusFallbackPHP(payload, status);
+                    String errorBody = "";
+                    if (error.networkResponse != null && error.networkResponse.data != null) {
+                        try {
+                            errorBody = new String(error.networkResponse.data, "UTF-8");
+                        } catch (Exception ignored) {}
                     }
+                    Log.w(TAG, "Update attempt " + currentAttempt + " failed for " + finalUrl + 
+                          ". Code: " + (error.networkResponse != null ? error.networkResponse.statusCode : "N/A") + 
+                          " Body: " + errorBody);
+                    tryUpdateOrderStatus(payload, status, currentAttempt + 1);
                 }
         ) {
             @Override
@@ -305,35 +360,27 @@ public class ActiveOrderActivity extends AppCompatActivity {
         requestQueue.add(request);
     }
 
-    private void updateStatusViaGeneralEndpoint(JSONObject payload, String status) {
-        JsonObjectRequest request = new JsonObjectRequest(
+    private void updateStatusViaFormData(String status) {
+        String url = Constants.URL_UPDATE_ORDER_STATUS_LEGACY;
+        StringRequest request = new StringRequest(
                 Request.Method.POST,
-                Constants.URL_UPDATE_STATUS,
-                payload,
-                response -> handleStatusUpdateSuccess(status),
-                error -> updateStatusFallbackPHP(payload, status)
-        ) {
-            @Override
-            public Map<String, String> getHeaders() {
-                return buildAuthHeaders();
-            }
-        };
-        requestQueue.add(request);
-    }
-
-    private void updateStatusFallbackPHP(JSONObject payload, String status) {
-        // Many PHP backends serve at update_status.php without /api/ prefix if routing isn't used
-        String fallbackUrl = Constants.URL_UPDATE_ORDER_STATUS_LEGACY;
-        JsonObjectRequest request = new JsonObjectRequest(
-                Request.Method.POST,
-                fallbackUrl,
-                payload,
+                url,
                 response -> handleStatusUpdateSuccess(status),
                 error -> {
-                    Log.e(TAG, "All status update attempts failed", error);
-                    Toast.makeText(this, "Failed to update status. Check backend.", Toast.LENGTH_SHORT).show();
+                    Log.e(TAG, "Final form-data status update attempt failed.");
+                    Toast.makeText(this, "All update methods exhausted.", Toast.LENGTH_SHORT).show();
                 }
         ) {
+            @Override
+            protected Map<String, String> getParams() {
+                Map<String, String> params = new HashMap<>();
+                params.put("id", String.valueOf(orderId));
+                params.put("order_id", String.valueOf(orderId));
+                params.put("driver_id", String.valueOf(getDriverId()));
+                params.put("status", status);
+                params.put("api_token", AuthSessionManager.getValidAccessTokenOrNull(ActiveOrderActivity.this));
+                return params;
+            }
             @Override
             public Map<String, String> getHeaders() {
                 return buildAuthHeaders();
@@ -353,6 +400,18 @@ public class ActiveOrderActivity extends AppCompatActivity {
 
     private int getDriverId() {
         return getSharedPreferences("fooddash_prefs", MODE_PRIVATE).getInt("user_id", -1);
+    }
+
+    private String getDriverName() {
+        return getSharedPreferences("fooddash_prefs", MODE_PRIVATE).getString("user_name", "Driver");
+    }
+
+    private String getDriverPhone() {
+        return getSharedPreferences("fooddash_prefs", MODE_PRIVATE).getString("contact_number", "");
+    }
+
+    private String getDriverEmail() {
+        return getSharedPreferences("fooddash_prefs", MODE_PRIVATE).getString("user_email", "");
     }
 
     private Map<String, String> buildAuthHeaders() {

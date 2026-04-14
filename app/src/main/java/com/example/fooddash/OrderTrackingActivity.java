@@ -44,6 +44,8 @@ public class OrderTrackingActivity extends AppCompatActivity {
             Constants.STATUS_PREPARING,
             Constants.STATUS_READY,
             Constants.STATUS_ASSIGNED,
+            Constants.STATUS_ARRIVED_RESTAURANT,
+            Constants.STATUS_PICKED_UP,
             Constants.STATUS_ON_THE_WAY,
             Constants.STATUS_DELIVERED
     );
@@ -67,7 +69,6 @@ public class OrderTrackingActivity extends AppCompatActivity {
         btnBackToDashboard = findViewById(R.id.btnBackToDashboard);
 
         btnBackToDashboard.setOnClickListener(v -> {
-            // Redirect back to the Customer Dashboard (the first page after login for customers)
             Intent intent = new Intent(this, CustomerDashboard.class);
             intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
             startActivity(intent);
@@ -216,10 +217,21 @@ public class OrderTrackingActivity extends AppCompatActivity {
 
         StringBuilder builder = new StringBuilder();
         int current = timeline.indexOf(status);
+        
+        // If status is not in timeline, find the best match or default to start
+        if (current == -1) {
+            for (int i = 0; i < timeline.size(); i++) {
+                if (status.contains(timeline.get(i))) {
+                    current = i;
+                    break;
+                }
+            }
+        }
+
         for (int i = 0; i < timeline.size(); i++) {
             String step = timeline.get(i);
             String prefix = (current >= i) ? "[x] " : "[ ] ";
-            builder.append(prefix).append(step.toUpperCase());
+            builder.append(prefix).append(step.replace("_", " ").toUpperCase());
             if (i < timeline.size() - 1) {
                 builder.append("\n");
             }
@@ -239,6 +251,8 @@ public class OrderTrackingActivity extends AppCompatActivity {
         if (normalized.contains("prepar")) return Constants.STATUS_PREPARING;
         if (normalized.contains("ready")) return Constants.STATUS_READY;
         if (normalized.contains("assigned")) return Constants.STATUS_ASSIGNED;
+        if (normalized.contains("arrived")) return Constants.STATUS_ARRIVED_RESTAURANT;
+        if (normalized.contains("picked")) return Constants.STATUS_PICKED_UP;
         if (normalized.contains("way") || normalized.contains("transit")) return Constants.STATUS_ON_THE_WAY;
         if (normalized.contains("deliver")) return Constants.STATUS_DELIVERED;
         if (normalized.contains("pending")) return Constants.STATUS_PENDING;
