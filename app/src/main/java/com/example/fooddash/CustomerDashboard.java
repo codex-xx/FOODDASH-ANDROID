@@ -101,16 +101,15 @@ public class CustomerDashboard extends AppCompatActivity {
     private int activeOrderId = -1;
     private String activeOrderStatus = "";
     
-    // Updated flow to include all possible states
+    // Updated flow to match backend canonical statuses exactly
     private final List<String> canonicalStatusFlow = Arrays.asList(
             Constants.STATUS_PENDING,
             Constants.STATUS_ACCEPTED,
             Constants.STATUS_PREPARING,
             Constants.STATUS_READY,
-            Constants.STATUS_ASSIGNED,
-            Constants.STATUS_ARRIVED_RESTAURANT,
             Constants.STATUS_PICKED_UP,
-            Constants.STATUS_ON_THE_WAY,
+            Constants.STATUS_ARRIVED_RESTAURANT,
+            Constants.STATUS_OUT_FOR_DELIVERY,
             Constants.STATUS_DELIVERED
     );
 
@@ -754,17 +753,17 @@ public class CustomerDashboard extends AppCompatActivity {
     private JSONObject findActiveOrderInList(JSONArray orders) {
         if (orders == null || orders.length() == 0) return null;
         
-        // Strategy: find the newest order that is NOT delivered.
+        // Strategy: find the newest order that is NOT delivered or cancelled.
         for (int i = 0; i < orders.length(); i++) {
             JSONObject order = orders.optJSONObject(i);
             if (order != null) {
                 String status = normalizeStatus(order.optString("status", ""));
-                if (!status.equals(Constants.STATUS_DELIVERED)) {
+                if (!status.equals(Constants.STATUS_DELIVERED) && !status.equals(Constants.STATUS_CANCELLED)) {
                     return order;
                 }
             }
         }
-        // If all are delivered, return the most recent one (index 0)
+        // If all are delivered/cancelled, return the most recent one (index 0)
         return orders.optJSONObject(0);
     }
 
@@ -805,12 +804,16 @@ public class CustomerDashboard extends AppCompatActivity {
         if (!location.isEmpty() && !location.equals("null") && !location.equals("Waiting")) {
             subText += "\nDriver Update: " + location;
         } else {
-            if (status.equals(Constants.STATUS_ASSIGNED) || status.equals(Constants.STATUS_ARRIVED_RESTAURANT)) {
+            if (status.equals(Constants.STATUS_PICKED_UP)) {
                 subText += "\nDriver is picking up your order";
-            } else if (status.equals(Constants.STATUS_ON_THE_WAY)) {
+            } else if (status.equals(Constants.STATUS_ARRIVED_RESTAURANT)) {
+                subText += "\nDriver has arrived at the restaurant";
+            } else if (status.equals(Constants.STATUS_OUT_FOR_DELIVERY)) {
                 subText += "\nDriver is on the way to you";
             } else if (status.equals(Constants.STATUS_DELIVERED)) {
                 subText = "Order #" + activeOrderId + " Delivered! Enjoy your meal.";
+            } else if (status.equals(Constants.STATUS_CANCELLED)) {
+                subText = "Order #" + activeOrderId + " was Cancelled.";
             } else {
                 subText += "\nWaiting for update...";
             }
@@ -825,26 +828,34 @@ public class CustomerDashboard extends AppCompatActivity {
             case Constants.STATUS_ACCEPTED: return "Confirmed";
             case Constants.STATUS_PREPARING: return "Preparing Food";
             case Constants.STATUS_READY: return "Food Ready";
-            case Constants.STATUS_ASSIGNED: return "Driver Assigned";
-            case Constants.STATUS_ARRIVED_RESTAURANT: return "Driver at Restaurant";
             case Constants.STATUS_PICKED_UP: return "Order Picked Up";
-            case Constants.STATUS_ON_THE_WAY: return "Out for Delivery";
+            case Constants.STATUS_ARRIVED_RESTAURANT: return "Driver at Restaurant";
+            case Constants.STATUS_OUT_FOR_DELIVERY: return "Out for Delivery";
             case Constants.STATUS_DELIVERED: return "Delivered";
+            case Constants.STATUS_CANCELLED: return "Cancelled";
             default: return status.substring(0, 1).toUpperCase() + status.substring(1).replace("_", " ");
         }
     }
 
     private String normalizeStatus(String raw) {
         if (raw == null) return Constants.STATUS_PENDING;
-        String n = raw.toLowerCase();
-        if (n.contains("accepted") || n.contains("confirm")) return Constants.STATUS_ACCEPTED;
+        String n = raw.trim().toLowerCase(Locale.ROOT);
+        
+        // Legacy alias normalization
+        if (n.equals("confirmed")) return Constants.STATUS_ACCEPTED;
+        if (n.equals("ready_for_pickup")) return Constants.STATUS_READY;
+        if (n.equals("completed")) return Constants.STATUS_DELIVERED;
+        if (n.equals("on_the_way")) return Constants.STATUS_OUT_FOR_DELIVERY;
+
+        if (n.contains("accepted")) return Constants.STATUS_ACCEPTED;
         if (n.contains("prepar")) return Constants.STATUS_PREPARING;
         if (n.contains("ready")) return Constants.STATUS_READY;
-        if (n.contains("assigned")) return Constants.STATUS_ASSIGNED;
         if (n.contains("arrived")) return Constants.STATUS_ARRIVED_RESTAURANT;
         if (n.contains("picked")) return Constants.STATUS_PICKED_UP;
-        if (n.contains("way") || n.contains("transit")) return Constants.STATUS_ON_THE_WAY;
+        if (n.contains("way") || n.contains("transit") || n.contains("delivery")) return Constants.STATUS_OUT_FOR_DELIVERY;
         if (n.contains("deliver")) return Constants.STATUS_DELIVERED;
+        if (n.contains("cancel")) return Constants.STATUS_CANCELLED;
+
         return Constants.STATUS_PENDING;
     }
 

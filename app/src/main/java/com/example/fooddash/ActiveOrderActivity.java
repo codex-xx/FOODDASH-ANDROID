@@ -1,6 +1,8 @@
 package com.example.fooddash;
 
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.TextUtils;
 import android.util.Log;
 import android.view.View;
@@ -21,11 +23,13 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 
 public class ActiveOrderActivity extends AppCompatActivity {
 
     private static final String TAG = "ActiveOrderActivity";
+    private static final long POLL_INTERVAL = 5000L;
 
     private TextView activeOrderIdText, activeCustomerName, activeCustomerContact, activeDeliveryAddress;
     private TextView activeRestaurantName, activeOrderItems, activeOrderStatus;
@@ -34,6 +38,7 @@ public class ActiveOrderActivity extends AppCompatActivity {
     private RequestQueue requestQueue;
     private JSONObject activeOrder;
     private int orderId = -1;
+    private final Handler statusPollingHandler = new Handler(Looper.getMainLooper());
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -81,10 +86,37 @@ public class ActiveOrderActivity extends AppCompatActivity {
             btnArrived.setOnClickListener(v -> updateOrderStatus(Constants.STATUS_ARRIVED_RESTAURANT));
         }
         btnPickedUp.setOnClickListener(v -> updateOrderStatus(Constants.STATUS_PICKED_UP));
-        btnOnTheWay.setOnClickListener(v -> updateOrderStatus(Constants.STATUS_ON_THE_WAY));
+        btnOnTheWay.setOnClickListener(v -> updateOrderStatus(Constants.STATUS_OUT_FOR_DELIVERY));
         btnDelivered.setOnClickListener(v -> updateOrderStatus(Constants.STATUS_DELIVERED));
         
         btnBackToDashboard.setOnClickListener(v -> finish());
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        startPolling();
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        stopPolling();
+    }
+
+    private void startPolling() {
+        stopPolling();
+        statusPollingHandler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                fetchFullOrderDetails();
+                statusPollingHandler.postDelayed(this, POLL_INTERVAL);
+            }
+        }, POLL_INTERVAL);
+    }
+
+    private void stopPolling() {
+        statusPollingHandler.removeCallbacksAndMessages(null);
     }
 
     private void fetchFullOrderDetails() {
@@ -213,9 +245,14 @@ public class ActiveOrderActivity extends AppCompatActivity {
         activeOrderItems.setText(finalItems.isEmpty() ? "Items:\n(Loading item list...)" : "Items:\n" + finalItems);
         
         String status = normalizeStatus(activeOrder.optString("status", "pending"));
-        activeOrderStatus.setText("Status: " + status.toUpperCase());
+        activeOrderStatus.setText("Status: " + status.replace("_", " ").toUpperCase());
         
         updateButtonVisibilities(status);
+
+        if (Constants.STATUS_DELIVERED.equals(status) || Constants.STATUS_CANCELLED.equals(status)) {
+            Toast.makeText(this, "Order " + status.toUpperCase(), Toast.LENGTH_SHORT).show();
+            finish();
+        }
     }
 
     private String firstNonEmpty(String... values) {
@@ -227,17 +264,29 @@ public class ActiveOrderActivity extends AppCompatActivity {
         return "";
     }
 
-    private String normalizeStatus(String status) {
-        if (status == null) return "pending";
-        String n = status.toLowerCase();
-        if (n.contains("assigned")) return Constants.STATUS_ASSIGNED;
+    public static String normalizeStatus(String status) {
+        if (status == null || status.isEmpty() || status.equals("null")) return Constants.STATUS_PENDING;
+        String n = status.trim().toLowerCase(Locale.ROOT);
+        
+        // 1. Explicit canonical normalization (Legacy aliases)
+        if (n.equals("confirmed")) return Constants.STATUS_ACCEPTED;
+        if (n.equals("ready_for_pickup")) return Constants.STATUS_READY;
+        if (n.equals("on_the_way")) return Constants.STATUS_OUT_FOR_DELIVERY;
+        if (n.equals("completed")) return Constants.STATUS_DELIVERED;
+
+        // 2. Safe parsing for variations
         if (n.contains("accepted")) return Constants.STATUS_ACCEPTED;
-        if (n.contains("arrived")) return Constants.STATUS_ARRIVED_RESTAURANT;
-        if (n.contains("picked")) return Constants.STATUS_PICKED_UP;
-        if (n.contains("way") || n.contains("transit")) return Constants.STATUS_ON_THE_WAY;
-        if (n.contains("deliver")) return Constants.STATUS_DELIVERED;
-        if (n.contains("ready")) return Constants.STATUS_READY;
         if (n.contains("prepar")) return Constants.STATUS_PREPARING;
+        if (n.contains("ready")) return Constants.STATUS_READY;
+        if (n.contains("picked")) return Constants.STATUS_PICKED_UP;
+        if (n.contains("arrived")) return Constants.STATUS_ARRIVED_RESTAURANT;
+        if (n.contains("way") || n.contains("transit") || n.contains("out_for") || n.contains("out_of")) 
+            return Constants.STATUS_OUT_FOR_DELIVERY;
+        if (n.contains("deliver") || n.contains("done") || n.contains("finish")) 
+            return Constants.STATUS_DELIVERED;
+        if (n.contains("cancel")) return Constants.STATUS_CANCELLED;
+        if (n.contains("pending")) return Constants.STATUS_PENDING;
+        
         return n;
     }
 
@@ -247,31 +296,31 @@ public class ActiveOrderActivity extends AppCompatActivity {
         btnOnTheWay.setVisibility(View.GONE);
         btnDelivered.setVisibility(View.GONE);
 
-        if (Constants.STATUS_ASSIGNED.equals(status) || Constants.STATUS_ACCEPTED.equals(status)) {
-            if (btnArrived != null) btnArrived.setVisibility(View.VISIBLE);
-        } else if (Constants.STATUS_ARRIVED_RESTAURANT.equals(status) || 
-                   Constants.STATUS_READY.equals(status) || 
-                   Constants.STATUS_PREPARING.equals(status)) {
+        // Sequence: pending -> accepted -> preparing -> ready -> picked_up -> arrived_at_restaurant -> out_for_delivery -> delivered
+        if (Constants.STATUS_ACCEPTED.equals(status) || Constants.STATUS_PREPARING.equals(status)) {
+             if (btnArrived != null) btnArrived.setVisibility(View.VISIBLE);
+        } else if (Constants.STATUS_READY.equals(status)) {
             btnPickedUp.setVisibility(View.VISIBLE);
         } else if (Constants.STATUS_PICKED_UP.equals(status)) {
+            if (btnArrived != null) btnArrived.setVisibility(View.VISIBLE);
+        } else if (Constants.STATUS_ARRIVED_RESTAURANT.equals(status)) {
             btnOnTheWay.setVisibility(View.VISIBLE);
-        } else if (Constants.STATUS_ON_THE_WAY.equals(status)) {
+        } else if (Constants.STATUS_OUT_FOR_DELIVERY.equals(status)) {
             btnDelivered.setVisibility(View.VISIBLE);
         }
     }
 
     private void updateOrderStatus(String status) {
-        if (!AccessControlManager.canPerform(this,
-                AccessControlManager.Resource.ORDERS,
-                AccessControlManager.Action.UPDATE)) {
-            Toast.makeText(this, "Access denied for this action", Toast.LENGTH_SHORT).show();
+        if (!AccessControlManager.canPerform(this, AccessControlManager.Resource.ORDERS, AccessControlManager.Action.UPDATE)) {
+            Toast.makeText(this, "Access denied", Toast.LENGTH_SHORT).show();
             return;
         }
 
-        if (orderId <= 0) {
-            Toast.makeText(this, "Cannot update status: Invalid Order ID", Toast.LENGTH_SHORT).show();
-            return;
-        }
+        if (orderId <= 0) return;
+
+        // Optimistic UI update
+        activeOrderStatus.setText("Status: " + status.replace("_", " ").toUpperCase());
+        updateButtonVisibilities(status);
 
         String token = AuthSessionManager.getValidAccessTokenOrNull(this);
         JSONObject payload = new JSONObject();
@@ -285,12 +334,6 @@ public class ActiveOrderActivity extends AppCompatActivity {
             payload.put("status", status);
             payload.put("order_status", status);
             payload.put("new_status", status);
-            
-            // Add variant for arrived status
-            if (Constants.STATUS_ARRIVED_RESTAURANT.equals(status)) {
-                payload.put("status_alt", "arrived_at_restaurant");
-            }
-
             payload.put("driver_name", getDriverName());
             payload.put("driver_phone", getDriverPhone());
             payload.put("driver_email", getDriverEmail());
@@ -308,111 +351,34 @@ public class ActiveOrderActivity extends AppCompatActivity {
         int method = Request.Method.POST;
 
         switch (attempt) {
-            case 0:
-                url = (Constants.STATUS_ASSIGNED.equals(status)) ? Constants.URL_DRIVER_ACCEPT_ORDER : Constants.URL_UPDATE_STATUS;
-                break;
-            case 1:
-                url = Constants.URL_ORDERS + "/" + orderId + "/status";
-                break;
-            case 2:
-                url = Constants.URL_ORDERS + "/" + orderId;
-                method = Request.Method.PUT;
-                break;
-            case 3:
-                url = Constants.URL_UPDATE_ORDER_STATUS_LEGACY;
-                break;
-            case 4:
-                updateStatusViaFormData(status);
-                return;
+            case 0: url = Constants.URL_UPDATE_STATUS; break;
+            case 1: url = Constants.URL_ORDERS + "/" + orderId + "/status"; break;
+            case 2: url = Constants.URL_UPDATE_ORDER_STATUS_LEGACY; break;
             default:
-                Log.e(TAG, "All status update attempts failed for status: " + status);
-                Toast.makeText(this, "All update attempts failed. Please check backend configuration.", Toast.LENGTH_LONG).show();
+                Log.e(TAG, "Update failed after attempts");
+                fetchFullOrderDetails(); 
                 return;
         }
 
-        final int currentAttempt = attempt;
-        final String finalUrl = url;
-        
-        JsonObjectRequest request = new JsonObjectRequest(
-                method,
-                url,
-                payload,
+        JsonObjectRequest request = new JsonObjectRequest(method, url, payload,
                 response -> handleStatusUpdateSuccess(status),
-                error -> {
-                    String errorBody = "";
-                    if (error.networkResponse != null && error.networkResponse.data != null) {
-                        try {
-                            errorBody = new String(error.networkResponse.data, "UTF-8");
-                        } catch (Exception ignored) {}
-                    }
-                    Log.w(TAG, "Update attempt " + currentAttempt + " failed for " + finalUrl + 
-                          ". Code: " + (error.networkResponse != null ? error.networkResponse.statusCode : "N/A") + 
-                          " Body: " + errorBody);
-                    tryUpdateOrderStatus(payload, status, currentAttempt + 1);
-                }
+                error -> tryUpdateOrderStatus(payload, status, attempt + 1)
         ) {
             @Override
-            public Map<String, String> getHeaders() {
-                return buildAuthHeaders();
-            }
-        };
-
-        requestQueue.add(request);
-    }
-
-    private void updateStatusViaFormData(String status) {
-        String url = Constants.URL_UPDATE_ORDER_STATUS_LEGACY;
-        StringRequest request = new StringRequest(
-                Request.Method.POST,
-                url,
-                response -> handleStatusUpdateSuccess(status),
-                error -> {
-                    Log.e(TAG, "Final form-data status update attempt failed.");
-                    Toast.makeText(this, "All update methods exhausted.", Toast.LENGTH_SHORT).show();
-                }
-        ) {
-            @Override
-            protected Map<String, String> getParams() {
-                Map<String, String> params = new HashMap<>();
-                params.put("id", String.valueOf(orderId));
-                params.put("order_id", String.valueOf(orderId));
-                params.put("driver_id", String.valueOf(getDriverId()));
-                params.put("status", status);
-                params.put("api_token", AuthSessionManager.getValidAccessTokenOrNull(ActiveOrderActivity.this));
-                return params;
-            }
-            @Override
-            public Map<String, String> getHeaders() {
-                return buildAuthHeaders();
-            }
+            public Map<String, String> getHeaders() { return buildAuthHeaders(); }
         };
         requestQueue.add(request);
     }
 
     private void handleStatusUpdateSuccess(String status) {
-        Toast.makeText(this, "Order marked as " + status.replace("_", " "), Toast.LENGTH_SHORT).show();
-        activeOrderStatus.setText("Status: " + status.toUpperCase());
-        updateButtonVisibilities(status);
-        if (Constants.STATUS_DELIVERED.equals(status)) {
-            finish();
-        }
+        Toast.makeText(this, "Successfully marked as " + status.replace("_", " "), Toast.LENGTH_SHORT).show();
+        fetchFullOrderDetails(); 
     }
 
-    private int getDriverId() {
-        return getSharedPreferences("fooddash_prefs", MODE_PRIVATE).getInt("user_id", -1);
-    }
-
-    private String getDriverName() {
-        return getSharedPreferences("fooddash_prefs", MODE_PRIVATE).getString("user_name", "Driver");
-    }
-
-    private String getDriverPhone() {
-        return getSharedPreferences("fooddash_prefs", MODE_PRIVATE).getString("contact_number", "");
-    }
-
-    private String getDriverEmail() {
-        return getSharedPreferences("fooddash_prefs", MODE_PRIVATE).getString("user_email", "");
-    }
+    private int getDriverId() { return getSharedPreferences("fooddash_prefs", MODE_PRIVATE).getInt("user_id", -1); }
+    private String getDriverName() { return getSharedPreferences("fooddash_prefs", MODE_PRIVATE).getString("user_name", "Driver"); }
+    private String getDriverPhone() { return getSharedPreferences("fooddash_prefs", MODE_PRIVATE).getString("contact_number", ""); }
+    private String getDriverEmail() { return getSharedPreferences("fooddash_prefs", MODE_PRIVATE).getString("user_email", ""); }
 
     private Map<String, String> buildAuthHeaders() {
         Map<String, String> headers = new HashMap<>();

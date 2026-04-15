@@ -43,10 +43,9 @@ public class OrderTrackingActivity extends AppCompatActivity {
             Constants.STATUS_ACCEPTED,
             Constants.STATUS_PREPARING,
             Constants.STATUS_READY,
-            Constants.STATUS_ASSIGNED,
-            Constants.STATUS_ARRIVED_RESTAURANT,
             Constants.STATUS_PICKED_UP,
-            Constants.STATUS_ON_THE_WAY,
+            Constants.STATUS_ARRIVED_RESTAURANT,
+            Constants.STATUS_OUT_FOR_DELIVERY,
             Constants.STATUS_DELIVERED
     );
 
@@ -247,15 +246,23 @@ public class OrderTrackingActivity extends AppCompatActivity {
 
     private String normalizeStatus(String raw) {
         String normalized = raw == null ? "" : raw.trim().toLowerCase(Locale.ROOT);
+        
+        // Legacy alias normalization
+        if (normalized.equals("confirmed")) return Constants.STATUS_ACCEPTED;
+        if (normalized.equals("ready_for_pickup")) return Constants.STATUS_READY;
+        if (normalized.equals("completed")) return Constants.STATUS_DELIVERED;
+        if (normalized.equals("on_the_way")) return Constants.STATUS_OUT_FOR_DELIVERY;
+
         if (normalized.contains("accepted")) return Constants.STATUS_ACCEPTED;
         if (normalized.contains("prepar")) return Constants.STATUS_PREPARING;
         if (normalized.contains("ready")) return Constants.STATUS_READY;
-        if (normalized.contains("assigned")) return Constants.STATUS_ASSIGNED;
         if (normalized.contains("arrived")) return Constants.STATUS_ARRIVED_RESTAURANT;
         if (normalized.contains("picked")) return Constants.STATUS_PICKED_UP;
-        if (normalized.contains("way") || normalized.contains("transit")) return Constants.STATUS_ON_THE_WAY;
+        if (normalized.contains("way") || normalized.contains("transit") || normalized.contains("delivery")) return Constants.STATUS_OUT_FOR_DELIVERY;
         if (normalized.contains("deliver")) return Constants.STATUS_DELIVERED;
         if (normalized.contains("pending")) return Constants.STATUS_PENDING;
+        if (normalized.contains("cancel")) return Constants.STATUS_CANCELLED;
+
         return raw;
     }
 

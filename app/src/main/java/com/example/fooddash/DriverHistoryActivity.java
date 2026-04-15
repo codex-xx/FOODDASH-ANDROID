@@ -1,5 +1,6 @@
 package com.example.fooddash;
 
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.util.Log;
@@ -57,7 +58,14 @@ public class DriverHistoryActivity extends AppCompatActivity {
         noHistoryTextView = findViewById(R.id.noHistoryTextView);
         Button btnBack = findViewById(R.id.btnBack);
 
-        btnBack.setOnClickListener(v -> finish());
+        // Fix History Back Button Navigation
+        btnBack.setOnClickListener(v -> onBackPressed());
+
+        // Enable toolbar back button if present
+        if (getSupportActionBar() != null) {
+            getSupportActionBar().setDisplayHomeAsUpEnabled(true);
+            getSupportActionBar().setTitle("Delivery History");
+        }
 
         historyRecyclerView.setLayoutManager(new LinearLayoutManager(this));
         adapter = new HistoryAdapter(historyList);
@@ -68,13 +76,28 @@ public class DriverHistoryActivity extends AppCompatActivity {
         fetchHistory();
     }
 
+    @Override
+    public boolean onSupportNavigateUp() {
+        onBackPressed();
+        return true;
+    }
+
+    @Override
+    public void onBackPressed() {
+        // Ensure we return to dashboard cleanly
+        Intent intent = new Intent(this, DriverDashboard.class);
+        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        startActivity(intent);
+        finish();
+    }
+
     private void fetchHistory() {
-        swipeRefreshLayout.setRefreshing(true);
+        if (swipeRefreshLayout != null) swipeRefreshLayout.setRefreshing(true);
         int driverId = getDriverId();
         String token = getApiToken();
 
         if (driverId <= 0) {
-            swipeRefreshLayout.setRefreshing(false);
+            if (swipeRefreshLayout != null) swipeRefreshLayout.setRefreshing(false);
             return;
         }
 
@@ -86,7 +109,7 @@ public class DriverHistoryActivity extends AppCompatActivity {
                 url,
                 null,
                 response -> {
-                    swipeRefreshLayout.setRefreshing(false);
+                    if (swipeRefreshLayout != null) swipeRefreshLayout.setRefreshing(false);
                     parseHistory(response);
                 },
                 error -> {
@@ -113,11 +136,11 @@ public class DriverHistoryActivity extends AppCompatActivity {
                 url,
                 null,
                 response -> {
-                    swipeRefreshLayout.setRefreshing(false);
+                    if (swipeRefreshLayout != null) swipeRefreshLayout.setRefreshing(false);
                     parseHistory(response);
                 },
                 error -> {
-                    swipeRefreshLayout.setRefreshing(false);
+                    if (swipeRefreshLayout != null) swipeRefreshLayout.setRefreshing(false);
                     Toast.makeText(this, "Failed to load history.", Toast.LENGTH_SHORT).show();
                 }
         ) {

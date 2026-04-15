@@ -38,16 +38,16 @@ public class Constants {
     public static final String URL_UPDATE_ORDER_STATUS_LEGACY = BASE_URL + "update_status.php";
     public static final String URL_DRIVER_ACCEPT_ORDER_LEGACY = BASE_URL + "driver/accept_order.php";
 
-    // Canonical order statuses
+    // Canonical order statuses (Source of Truth)
     public static final String STATUS_PENDING = "pending";
     public static final String STATUS_ACCEPTED = "accepted";
     public static final String STATUS_PREPARING = "preparing";
     public static final String STATUS_READY = "ready";
-    public static final String STATUS_ASSIGNED = "assigned";
-    public static final String STATUS_ARRIVED_RESTAURANT = "arrived_at_restaurant";
     public static final String STATUS_PICKED_UP = "picked_up";
-    public static final String STATUS_ON_THE_WAY = "on_the_way";
+    public static final String STATUS_ARRIVED_RESTAURANT = "arrived_at_restaurant";
+    public static final String STATUS_OUT_FOR_DELIVERY = "out_for_delivery";
     public static final String STATUS_DELIVERED = "delivered";
+    public static final String STATUS_CANCELLED = "cancelled";
 
     // Delivery type keys and fixed fees
     public static final String DELIVERY_MOTORCYCLE = "motorcycle";
