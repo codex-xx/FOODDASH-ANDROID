@@ -15,7 +15,6 @@ import androidx.appcompat.app.AppCompatActivity;
 import com.android.volley.Request;
 import com.android.volley.RequestQueue;
 import com.android.volley.toolbox.JsonObjectRequest;
-import com.android.volley.toolbox.StringRequest;
 import com.android.volley.toolbox.Volley;
 
 import org.json.JSONArray;
@@ -33,7 +32,7 @@ public class ActiveOrderActivity extends AppCompatActivity {
 
     private TextView activeOrderIdText, activeCustomerName, activeCustomerContact, activeDeliveryAddress;
     private TextView activeRestaurantName, activeOrderItems, activeOrderStatus;
-    private Button btnArrived, btnPickedUp, btnOnTheWay, btnDelivered, btnBackToDashboard;
+    private Button btnPreparing, btnReady, btnArrived, btnPickedUp, btnOnTheWay, btnDelivered, btnBackToDashboard;
 
     private RequestQueue requestQueue;
     private JSONObject activeOrder;
@@ -61,6 +60,8 @@ public class ActiveOrderActivity extends AppCompatActivity {
         activeOrderItems = findViewById(R.id.activeOrderItems);
         activeOrderStatus = findViewById(R.id.activeOrderStatus);
 
+        btnPreparing = findViewById(R.id.btnPreparing);
+        btnReady = findViewById(R.id.btnReady);
         btnArrived = findViewById(R.id.btnArrived);
         btnPickedUp = findViewById(R.id.btnPickedUp);
         btnOnTheWay = findViewById(R.id.btnOnTheWay);
@@ -82,12 +83,12 @@ public class ActiveOrderActivity extends AppCompatActivity {
             finish();
         }
 
-        if (btnArrived != null) {
-            btnArrived.setOnClickListener(v -> updateOrderStatus(Constants.STATUS_ARRIVED_RESTAURANT));
-        }
-        btnPickedUp.setOnClickListener(v -> updateOrderStatus(Constants.STATUS_PICKED_UP));
-        btnOnTheWay.setOnClickListener(v -> updateOrderStatus(Constants.STATUS_OUT_FOR_DELIVERY));
-        btnDelivered.setOnClickListener(v -> updateOrderStatus(Constants.STATUS_DELIVERED));
+        if (btnPreparing != null) btnPreparing.setOnClickListener(v -> updateOrderStatus(Constants.STATUS_PREPARING));
+        if (btnReady != null) btnReady.setOnClickListener(v -> updateOrderStatus(Constants.STATUS_READY));
+        if (btnArrived != null) btnArrived.setOnClickListener(v -> updateOrderStatus(Constants.STATUS_ARRIVED_RESTAURANT));
+        if (btnPickedUp != null) btnPickedUp.setOnClickListener(v -> updateOrderStatus(Constants.STATUS_PICKED_UP));
+        if (btnOnTheWay != null) btnOnTheWay.setOnClickListener(v -> updateOrderStatus(Constants.STATUS_OUT_FOR_DELIVERY));
+        if (btnDelivered != null) btnDelivered.setOnClickListener(v -> updateOrderStatus(Constants.STATUS_DELIVERED));
         
         btnBackToDashboard.setOnClickListener(v -> finish());
     }
@@ -268,13 +269,11 @@ public class ActiveOrderActivity extends AppCompatActivity {
         if (status == null || status.isEmpty() || status.equals("null")) return Constants.STATUS_PENDING;
         String n = status.trim().toLowerCase(Locale.ROOT);
         
-        // 1. Explicit canonical normalization (Legacy aliases)
         if (n.equals("confirmed")) return Constants.STATUS_ACCEPTED;
         if (n.equals("ready_for_pickup")) return Constants.STATUS_READY;
         if (n.equals("on_the_way")) return Constants.STATUS_OUT_FOR_DELIVERY;
         if (n.equals("completed")) return Constants.STATUS_DELIVERED;
 
-        // 2. Safe parsing for variations
         if (n.contains("accepted")) return Constants.STATUS_ACCEPTED;
         if (n.contains("prepar")) return Constants.STATUS_PREPARING;
         if (n.contains("ready")) return Constants.STATUS_READY;
@@ -291,22 +290,35 @@ public class ActiveOrderActivity extends AppCompatActivity {
     }
 
     private void updateButtonVisibilities(String status) {
+        if (btnPreparing != null) btnPreparing.setVisibility(View.GONE);
+        if (btnReady != null) btnReady.setVisibility(View.GONE);
         if (btnArrived != null) btnArrived.setVisibility(View.GONE);
-        btnPickedUp.setVisibility(View.GONE);
-        btnOnTheWay.setVisibility(View.GONE);
-        btnDelivered.setVisibility(View.GONE);
+        if (btnPickedUp != null) btnPickedUp.setVisibility(View.GONE);
+        if (btnOnTheWay != null) btnOnTheWay.setVisibility(View.GONE);
+        if (btnDelivered != null) btnDelivered.setVisibility(View.GONE);
 
+        // Multi-user Sync: Restaurant/Driver transitions
         // Sequence: pending -> accepted -> preparing -> ready -> picked_up -> arrived_at_restaurant -> out_for_delivery -> delivered
-        if (Constants.STATUS_ACCEPTED.equals(status) || Constants.STATUS_PREPARING.equals(status)) {
-             if (btnArrived != null) btnArrived.setVisibility(View.VISIBLE);
-        } else if (Constants.STATUS_READY.equals(status)) {
-            btnPickedUp.setVisibility(View.VISIBLE);
-        } else if (Constants.STATUS_PICKED_UP.equals(status)) {
+        
+        if (Constants.STATUS_ACCEPTED.equals(status)) {
+            // Restaurant should mark as preparing
+            if (btnPreparing != null) btnPreparing.setVisibility(View.VISIBLE);
+            // Driver can also mark as arrived if they are already there
             if (btnArrived != null) btnArrived.setVisibility(View.VISIBLE);
+        } else if (Constants.STATUS_PREPARING.equals(status)) {
+            // Restaurant marks as ready
+            if (btnReady != null) btnReady.setVisibility(View.VISIBLE);
+            if (btnArrived != null) btnArrived.setVisibility(View.VISIBLE);
+        } else if (Constants.STATUS_READY.equals(status)) {
+            // Driver marks as picked up
+            if (btnPickedUp != null) btnPickedUp.setVisibility(View.VISIBLE);
+        } else if (Constants.STATUS_PICKED_UP.equals(status)) {
+            if (btnOnTheWay != null) btnOnTheWay.setVisibility(View.VISIBLE);
         } else if (Constants.STATUS_ARRIVED_RESTAURANT.equals(status)) {
-            btnOnTheWay.setVisibility(View.VISIBLE);
+            // If they arrived but haven't picked up yet
+            if (btnPickedUp != null) btnPickedUp.setVisibility(View.VISIBLE);
         } else if (Constants.STATUS_OUT_FOR_DELIVERY.equals(status)) {
-            btnDelivered.setVisibility(View.VISIBLE);
+            if (btnDelivered != null) btnDelivered.setVisibility(View.VISIBLE);
         }
     }
 
@@ -318,14 +330,13 @@ public class ActiveOrderActivity extends AppCompatActivity {
 
         if (orderId <= 0) return;
 
-        // Optimistic UI update
         activeOrderStatus.setText("Status: " + status.replace("_", " ").toUpperCase());
         updateButtonVisibilities(status);
 
         String token = AuthSessionManager.getValidAccessTokenOrNull(this);
         JSONObject payload = new JSONObject();
         try {
-            int driverId = getDriverId();
+            int driverId = getUserId();
             payload.put("id", orderId);
             payload.put("order_id", orderId);
             payload.put("orderid", orderId);
@@ -334,9 +345,6 @@ public class ActiveOrderActivity extends AppCompatActivity {
             payload.put("status", status);
             payload.put("order_status", status);
             payload.put("new_status", status);
-            payload.put("driver_name", getDriverName());
-            payload.put("driver_phone", getDriverPhone());
-            payload.put("driver_email", getDriverEmail());
             payload.put("api_token", token);
             payload.put("token", token);
         } catch (JSONException e) {
@@ -375,10 +383,7 @@ public class ActiveOrderActivity extends AppCompatActivity {
         fetchFullOrderDetails(); 
     }
 
-    private int getDriverId() { return getSharedPreferences("fooddash_prefs", MODE_PRIVATE).getInt("user_id", -1); }
-    private String getDriverName() { return getSharedPreferences("fooddash_prefs", MODE_PRIVATE).getString("user_name", "Driver"); }
-    private String getDriverPhone() { return getSharedPreferences("fooddash_prefs", MODE_PRIVATE).getString("contact_number", ""); }
-    private String getDriverEmail() { return getSharedPreferences("fooddash_prefs", MODE_PRIVATE).getString("user_email", ""); }
+    private int getUserId() { return getSharedPreferences("fooddash_prefs", MODE_PRIVATE).getInt("user_id", -1); }
 
     private Map<String, String> buildAuthHeaders() {
         Map<String, String> headers = new HashMap<>();

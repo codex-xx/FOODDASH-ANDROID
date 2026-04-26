@@ -17,16 +17,19 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 public class CartActivity extends AppCompatActivity {
 
     private final List<CartItem> cartItems = new ArrayList<>();
     private TextView subtotalTextView;
     private LinearLayout cartGroupsContainer;
+    private Button btnProceedCheckout;
     private int restaurantId = -1;
     private String cartItemsJson = "[]";
 
@@ -44,7 +47,7 @@ public class CartActivity extends AppCompatActivity {
         TextView cartHeaderTextView = findViewById(R.id.cartHeaderTextView);
         subtotalTextView = findViewById(R.id.subtotalTextView);
         cartGroupsContainer = findViewById(R.id.cartGroupsContainer);
-        Button btnProceedCheckout = findViewById(R.id.btnProceedCheckout);
+        btnProceedCheckout = findViewById(R.id.btnProceedCheckout);
         Button btnBackToMenu = findViewById(R.id.btnBackToMenu);
 
         restaurantId = getIntent().getIntExtra("restaurant_id", -1);
@@ -55,9 +58,10 @@ public class CartActivity extends AppCompatActivity {
 
         parseCartItems(cartItemsJson);
 
-        cartHeaderTextView.setText("Cart Summary");
+        cartHeaderTextView.setText("Grouped Cart Summary");
         refreshCartUI(false);
 
+        btnProceedCheckout.setText("Checkout All Selected");
         btnProceedCheckout.setOnClickListener(v -> {
             JSONArray selectedItemsJson = buildSelectedItemsJson();
             if (selectedItemsJson.length() == 0) {
@@ -65,9 +69,8 @@ public class CartActivity extends AppCompatActivity {
                 return;
             }
 
-            int selectedRestaurantCount = countSelectedRestaurants();
             Intent intent = new Intent(this, CheckoutActivity.class);
-            intent.putExtra("restaurant_id", selectedRestaurantCount == 1 ? getSingleSelectedRestaurantId() : -1);
+            intent.putExtra("restaurant_id", -1);
             intent.putExtra("subtotal", calculateSelectedSubtotal());
             intent.putExtra("cart_items_json", selectedItemsJson.toString());
             startActivity(intent);
@@ -82,20 +85,18 @@ public class CartActivity extends AppCompatActivity {
             JSONArray array = new JSONArray(json);
             for (int i = 0; i < array.length(); i++) {
                 JSONObject obj = array.optJSONObject(i);
-                if (obj == null) {
-                    continue;
-                }
+                if (obj == null) continue;
 
-                int menuItemId = obj.optInt("menu_item_id", -1);
-                String name = obj.optString("name", "Item");
-                int quantity = obj.optInt("quantity", 0);
-                double price = obj.optDouble("price", 0.0);
-                String restaurantName = obj.optString("restaurant_name", "Restaurant");
                 int itemRestaurantId = obj.optInt("restaurant_id", restaurantId);
+                int menuItemId = obj.optInt("menu_item_id", obj.optInt("id", -1));
+                String name = obj.optString("name", "Item");
+                int quantity = obj.optInt("quantity", 1);
+                double price = obj.optDouble("price", 0.0);
+                String restaurantName = obj.optString("restaurant_name", "Restaurant #" + itemRestaurantId);
+                
                 cartItems.add(new CartItem(itemRestaurantId, menuItemId, name, quantity, price, restaurantName));
             }
-        } catch (Exception ignored) {
-        }
+        } catch (Exception ignored) {}
     }
 
     private void refreshCartUI(boolean persistCart) {
@@ -104,6 +105,26 @@ public class CartActivity extends AppCompatActivity {
         if (persistCart) {
             persistGlobalCart();
         }
+        
+        updateCheckoutButtonVisibility();
+    }
+
+    private void updateCheckoutButtonVisibility() {
+        Set<Integer> selectedRestaurantIds = new HashSet<>();
+        for (CartItem item : cartItems) {
+            if (item.isSelected) {
+                selectedRestaurantIds.add(item.restaurantId);
+            }
+        }
+        
+        // Hide "Checkout All" if items from more than one restaurant are selected
+        if (selectedRestaurantIds.size() > 1) {
+            btnProceedCheckout.setVisibility(View.GONE);
+        } else if (selectedRestaurantIds.size() == 1) {
+            btnProceedCheckout.setVisibility(View.VISIBLE);
+        } else {
+            btnProceedCheckout.setVisibility(View.GONE);
+        }
     }
 
     private void renderGroupedCart() {
@@ -111,14 +132,15 @@ public class CartActivity extends AppCompatActivity {
         if (cartItems.isEmpty()) {
             TextView emptyView = new TextView(this);
             emptyView.setText("Your cart is empty.");
-            emptyView.setTextSize(16f);
+            emptyView.setGravity(android.view.Gravity.CENTER);
+            emptyView.setPadding(0, 50, 0, 0);
             cartGroupsContainer.addView(emptyView);
             return;
         }
 
         Map<String, RestaurantGroup> groups = new LinkedHashMap<>();
         for (CartItem item : cartItems) {
-            String key = buildRestaurantKey(item.restaurantId, item.restaurantName);
+            String key = "id:" + item.restaurantId + ":" + item.restaurantName.toLowerCase();
             RestaurantGroup group = groups.get(key);
             if (group == null) {
                 group = new RestaurantGroup(item.restaurantId, item.restaurantName);
@@ -132,21 +154,35 @@ public class CartActivity extends AppCompatActivity {
             LinearLayout box = new LinearLayout(this);
             box.setOrientation(LinearLayout.VERTICAL);
             box.setBackgroundResource(R.drawable.view_border);
-            box.setPadding(16, 16, 16, 16);
+            box.setPadding(24, 24, 24, 24);
 
             LinearLayout.LayoutParams boxParams = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
             );
-            boxParams.setMargins(0, 0, 0, 12);
+            boxParams.setMargins(0, 0, 0, 32);
             box.setLayoutParams(boxParams);
+
+            LinearLayout header = new LinearLayout(this);
+            header.setOrientation(LinearLayout.HORIZONTAL);
+            header.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            header.setPadding(0, 0, 0, 16);
 
             TextView restaurantTitle = new TextView(this);
             restaurantTitle.setText(group.restaurantName);
-            restaurantTitle.setTextSize(16f);
-            restaurantTitle.setTypeface(restaurantTitle.getTypeface(), android.graphics.Typeface.BOLD);
-            box.addView(restaurantTitle);
+            restaurantTitle.setTextSize(18f);
+            restaurantTitle.setTypeface(null, android.graphics.Typeface.BOLD);
+            restaurantTitle.setLayoutParams(new LinearLayout.LayoutParams(0, -2, 1));
+            header.addView(restaurantTitle);
 
+            Button btnStoreCheckout = new Button(this, null, android.R.attr.buttonStyleSmall);
+            btnStoreCheckout.setText("Checkout Store");
+            btnStoreCheckout.setOnClickListener(v -> proceedToCheckoutForGroup(group));
+            header.addView(btnStoreCheckout);
+
+            box.addView(header);
+
+            double groupSubtotal = 0;
             for (CartItem item : group.items) {
                 View row = inflater.inflate(R.layout.item_cart_entry, box, false);
                 CheckBox checkBox = row.findViewById(R.id.cartItemCheckBox);
@@ -156,57 +192,89 @@ public class CartActivity extends AppCompatActivity {
 
                 checkBox.setOnCheckedChangeListener(null);
                 checkBox.setChecked(item.isSelected);
-                checkBox.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                checkBox.setOnCheckedChangeListener((bv, isChecked) -> {
                     item.isSelected = isChecked;
-                    updateSelectedSummary();
+                    refreshCartUI(false);
                 });
 
                 row.setOnClickListener(v -> {
                     item.isSelected = !item.isSelected;
                     checkBox.setChecked(item.isSelected);
-                    updateSelectedSummary();
+                    refreshCartUI(false);
                 });
 
                 itemName.setText(item.name);
-                itemMeta.setText(String.format(
-                        Locale.getDefault(),
-                        "Qty: %d   Unit: P%.2f   Line: P%.2f",
-                        item.quantity,
-                        item.price,
-                        item.quantity * item.price
-                ));
+                double linePrice = item.quantity * item.price;
+                itemMeta.setText(String.format(Locale.getDefault(), "Qty: %d | P%.2f ea | Total: P%.2f", item.quantity, item.price, linePrice));
+                
+                if (item.isSelected) groupSubtotal += linePrice;
 
                 deleteButton.setOnClickListener(v -> {
                     cartItems.remove(item);
                     refreshCartUI(true);
-                    Toast.makeText(this, "Item removed from cart", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, "Item removed", Toast.LENGTH_SHORT).show();
                 });
 
                 box.addView(row);
             }
 
+            TextView groupFooter = new TextView(this);
+            groupFooter.setText(String.format(Locale.getDefault(), "Subtotal: P%.2f", groupSubtotal));
+            groupFooter.setGravity(android.view.Gravity.END);
+            groupFooter.setPadding(0, 16, 0, 0);
+            groupFooter.setTypeface(null, android.graphics.Typeface.BOLD_ITALIC);
+            box.addView(groupFooter);
+
             cartGroupsContainer.addView(box);
         }
+    }
+
+    private void proceedToCheckoutForGroup(RestaurantGroup group) {
+        JSONArray selectedArray = new JSONArray();
+        double subtotal = 0;
+        for (CartItem item : group.items) {
+            if (item.isSelected) {
+                try {
+                    JSONObject obj = new JSONObject();
+                    obj.put("restaurant_id", item.restaurantId);
+                    obj.put("restaurant_name", item.restaurantName);
+                    obj.put("menu_item_id", item.menuItemId);
+                    obj.put("name", item.name);
+                    obj.put("quantity", item.quantity);
+                    obj.put("price", item.price);
+                    selectedArray.put(obj);
+                    subtotal += item.quantity * item.price;
+                } catch (Exception ignored) {}
+            }
+        }
+
+        if (selectedArray.length() == 0) {
+            Toast.makeText(this, "No items selected from this restaurant", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        Intent intent = new Intent(this, CheckoutActivity.class);
+        intent.putExtra("restaurant_id", group.restaurantId);
+        intent.putExtra("subtotal", subtotal);
+        intent.putExtra("cart_items_json", selectedArray.toString());
+        startActivity(intent);
     }
 
     private JSONArray buildSelectedItemsJson() {
         JSONArray array = new JSONArray();
         for (CartItem item : cartItems) {
-            if (!item.isSelected || item.quantity <= 0) {
-                continue;
+            if (item.isSelected) {
+                try {
+                    JSONObject obj = new JSONObject();
+                    obj.put("restaurant_id", item.restaurantId);
+                    obj.put("restaurant_name", item.restaurantName);
+                    obj.put("menu_item_id", item.menuItemId);
+                    obj.put("name", item.name);
+                    obj.put("quantity", item.quantity);
+                    obj.put("price", item.price);
+                    array.put(obj);
+                } catch (Exception ignored) {}
             }
-
-            JSONObject obj = new JSONObject();
-            try {
-                obj.put("restaurant_id", item.restaurantId);
-                obj.put("restaurant_name", item.restaurantName);
-                obj.put("menu_item_id", item.menuItemId);
-                obj.put("name", item.name);
-                obj.put("quantity", item.quantity);
-                obj.put("price", item.price);
-            } catch (Exception ignored) {
-            }
-            array.put(obj);
         }
         return array;
     }
@@ -214,113 +282,41 @@ public class CartActivity extends AppCompatActivity {
     private double calculateSelectedSubtotal() {
         double total = 0;
         for (CartItem item : cartItems) {
-            if (item.isSelected) {
-                total += item.price * item.quantity;
-            }
+            if (item.isSelected) total += item.price * item.quantity;
         }
         return total;
     }
 
-    private int countSelectedRestaurants() {
-        java.util.Set<String> keys = new java.util.HashSet<>();
-        for (CartItem item : cartItems) {
-            if (item.isSelected) {
-                keys.add(buildRestaurantKey(item.restaurantId, item.restaurantName));
-            }
-        }
-        return keys.size();
-    }
-
-    private int getSingleSelectedRestaurantId() {
-        String singleKey = null;
-        int id = -1;
-        for (CartItem item : cartItems) {
-            if (!item.isSelected) {
-                continue;
-            }
-
-            String key = buildRestaurantKey(item.restaurantId, item.restaurantName);
-            if (singleKey == null) {
-                singleKey = key;
-                id = item.restaurantId;
-                continue;
-            }
-
-            if (!singleKey.equals(key)) {
-                return -1;
-            }
-            if (id <= 0 && item.restaurantId > 0) {
-                id = item.restaurantId;
-            }
-        }
-        return id;
-    }
-
-    private String buildRestaurantKey(int id, String name) {
-        String normalizedName = name == null ? "" : name.trim().toLowerCase(Locale.ROOT);
-        if (!normalizedName.isEmpty()) {
-            return "name:" + normalizedName;
-        }
-        return "id:" + id;
-    }
-
     private void updateSelectedSummary() {
-        int selectedCount = 0;
-        for (CartItem item : cartItems) {
-            if (item.isSelected) {
-                selectedCount += item.quantity;
-            }
-        }
-
-        double selectedSubtotal = calculateSelectedSubtotal();
-        int selectedRestaurants = countSelectedRestaurants();
-
-        subtotalTextView.setText(String.format(
-                Locale.getDefault(),
-                "Selected Items: %d | Restaurants: %d | Total: P%.2f",
-                selectedCount,
-                selectedRestaurants,
-                selectedSubtotal
-        ));
+        int count = 0;
+        for (CartItem item : cartItems) if (item.isSelected) count += item.quantity;
+        subtotalTextView.setText(String.format(Locale.getDefault(), "Grand Total (Selected): P%.2f", calculateSelectedSubtotal()));
     }
 
     private void persistGlobalCart() {
         JSONArray array = new JSONArray();
         for (CartItem item : cartItems) {
-            JSONObject obj = new JSONObject();
             try {
+                JSONObject obj = new JSONObject();
                 obj.put("restaurant_id", item.restaurantId);
                 obj.put("restaurant_name", item.restaurantName);
                 obj.put("menu_item_id", item.menuItemId);
                 obj.put("name", item.name);
                 obj.put("quantity", item.quantity);
                 obj.put("price", item.price);
-            } catch (Exception ignored) {
-            }
-            array.put(obj);
+                array.put(obj);
+            } catch (Exception ignored) {}
         }
-
-        SharedPreferences prefs = getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
-        prefs.edit().putString("global_cart_json", array.toString()).apply();
-        cartItemsJson = array.toString();
+        getSharedPreferences("fooddash_prefs", MODE_PRIVATE).edit().putString("global_cart_json", array.toString()).apply();
     }
 
     private static class CartItem {
-        int restaurantId;
-        int menuItemId;
-        String name;
-        int quantity;
+        int restaurantId, menuItemId, quantity;
+        String name, restaurantName;
         double price;
-        String restaurantName;
         boolean isSelected = true;
-
-        CartItem(int restaurantId, int menuItemId, String name, int quantity, double price, String restaurantName) {
-            this.restaurantId = restaurantId;
-            this.menuItemId = menuItemId;
-            this.name = name;
-            this.quantity = quantity;
-            this.price = price;
-            this.restaurantName = restaurantName;
+        CartItem(int resId, int menuId, String name, int qty, double pr, String resName) {
+            this.restaurantId = resId; this.menuItemId = menuId; this.name = name; this.quantity = qty; this.price = pr; this.restaurantName = resName;
         }
     }
 
@@ -328,10 +324,6 @@ public class CartActivity extends AppCompatActivity {
         int restaurantId;
         String restaurantName;
         List<CartItem> items = new ArrayList<>();
-
-        RestaurantGroup(int restaurantId, String restaurantName) {
-            this.restaurantId = restaurantId;
-            this.restaurantName = restaurantName;
-        }
+        RestaurantGroup(int id, String name) { this.restaurantId = id; this.restaurantName = name; }
     }
 }

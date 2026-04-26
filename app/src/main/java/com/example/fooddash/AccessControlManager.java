@@ -15,8 +15,9 @@ import java.util.Map;
 public final class AccessControlManager {
 
     private static final String PREFS_NAME = "fooddash_prefs";
-    private static final String ROLE_CUSTOMER = "customer";
-    private static final String ROLE_DRIVER = "driver";
+    public static final String ROLE_CUSTOMER = "customer";
+    public static final String ROLE_DRIVER = "driver";
+    public static final String ROLE_RESTAURANT = "restaurant";
 
     public enum Action {
         READ,
@@ -28,6 +29,7 @@ public final class AccessControlManager {
     public enum Resource {
         CUSTOMER_DASHBOARD,
         DRIVER_DASHBOARD,
+        RESTAURANT_DASHBOARD,
         CART,
         CHECKOUT,
         ORDER_TRACKING,
@@ -53,6 +55,12 @@ public final class AccessControlManager {
         driverRules.put(Resource.DRIVER_HISTORY, EnumSet.of(Action.READ));
         driverRules.put(Resource.ORDERS, EnumSet.of(Action.READ, Action.UPDATE));
         POLICY.put(ROLE_DRIVER, driverRules);
+
+        EnumMap<Resource, EnumSet<Action>> restaurantRules = new EnumMap<>(Resource.class);
+        restaurantRules.put(Resource.RESTAURANT_DASHBOARD, EnumSet.of(Action.READ));
+        restaurantRules.put(Resource.ACTIVE_ORDER, EnumSet.of(Action.READ, Action.UPDATE));
+        restaurantRules.put(Resource.ORDERS, EnumSet.of(Action.READ, Action.UPDATE));
+        POLICY.put(ROLE_RESTAURANT, restaurantRules);
     }
 
     private AccessControlManager() {
@@ -128,7 +136,7 @@ public final class AccessControlManager {
         return actions != null && actions.contains(action);
     }
 
-    private static String normalizeRole(String role) {
+    public static String normalizeRole(String role) {
         if (role == null) {
             return "";
         }
@@ -140,15 +148,24 @@ public final class AccessControlManager {
         if (normalized.contains(ROLE_CUSTOMER)) {
             return ROLE_CUSTOMER;
         }
+        if (normalized.contains(ROLE_RESTAURANT)) {
+            return ROLE_RESTAURANT;
+        }
         return normalized;
     }
 
     private static void redirectToAllowedHome(AppCompatActivity activity, String role) {
         Intent destination;
-        if (ROLE_DRIVER.equals(normalizeRole(role))) {
+        String nRole = normalizeRole(role);
+        if (ROLE_DRIVER.equals(nRole)) {
             destination = new Intent(activity, DriverDashboard.class);
-        } else if (ROLE_CUSTOMER.equals(normalizeRole(role))) {
+        } else if (ROLE_CUSTOMER.equals(nRole)) {
             destination = new Intent(activity, CustomerDashboard.class);
+        } else if (ROLE_RESTAURANT.equals(nRole)) {
+            // Placeholder for RestaurantDashboard
+            // destination = new Intent(activity, RestaurantDashboard.class);
+            forceLogin(activity);
+            return;
         } else {
             forceLogin(activity);
             return;

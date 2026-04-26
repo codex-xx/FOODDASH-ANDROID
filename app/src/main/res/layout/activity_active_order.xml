@@ -14,7 +14,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Order Details"
+            android:text="Order Status Tracking"
             android:textSize="24sp"
             android:textStyle="bold" />
 
@@ -113,32 +113,60 @@
             android:background="@drawable/button_border" />
 
         <Button
-            android:id="@+id/btnArrived"
+            android:id="@+id/btnAccept"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="20dp"
-            android:text="Arrived at Restaurant" />
+            android:text="Accept Order"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/btnPreparing"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="Mark as Preparing"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/btnReady"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="Mark as Ready for Pickup"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/btnArrived"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="Arrived at Restaurant"
+            android:visibility="gone" />
 
         <Button
             android:id="@+id/btnPickedUp"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
-            android:text="Picked Up Order" />
+            android:text="Picked Up Order"
+            android:visibility="gone" />
 
         <Button
             android:id="@+id/btnOnTheWay"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
-            android:text="On the Way" />
+            android:text="On the Way"
+            android:visibility="gone" />
 
         <Button
             android:id="@+id/btnDelivered"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
-            android:text="Mark as Delivered" />
+            android:text="Mark as Delivered"
+            android:visibility="gone" />
 
         <Button
             android:id="@+id/btnBackToDashboard"

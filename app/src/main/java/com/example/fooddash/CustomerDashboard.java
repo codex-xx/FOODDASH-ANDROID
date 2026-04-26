@@ -73,6 +73,7 @@ public class CustomerDashboard extends AppCompatActivity {
     private EditText searchEditText;
     private EditText deliveryAddressEditText;
     private Button btnPlaceOrder, btnLogout;
+    private ImageButton btnViewActiveOrders;
     private RadioGroup vehicleRadioGroup;
     private TextView totalPriceTextView;
     private LinearLayout orderTrackingLayout;
@@ -101,7 +102,6 @@ public class CustomerDashboard extends AppCompatActivity {
     private int activeOrderId = -1;
     private String activeOrderStatus = "";
     
-    // Updated flow to match backend canonical statuses exactly
     private final List<String> canonicalStatusFlow = Arrays.asList(
             Constants.STATUS_PENDING,
             Constants.STATUS_ACCEPTED,
@@ -164,6 +164,7 @@ public class CustomerDashboard extends AppCompatActivity {
         deliveryAddressEditText = findViewById(R.id.deliveryAddressEditText);
         btnPlaceOrder = findViewById(R.id.btnPlaceOrder);
         btnLogout = findViewById(R.id.btnLogout);
+        btnViewActiveOrders = findViewById(R.id.btnViewActiveOrders);
         vehicleRadioGroup = findViewById(R.id.vehicleRadioGroup);
         totalPriceTextView = findViewById(R.id.totalPriceTextView);
         orderTrackingLayout = findViewById(R.id.orderTrackingLayout);
@@ -220,6 +221,13 @@ public class CustomerDashboard extends AppCompatActivity {
             startActivity(new Intent(this, LoginActivity.class));
             finish();
         });
+
+        if (btnViewActiveOrders != null) {
+            btnViewActiveOrders.setOnClickListener(v -> {
+                Intent intent = new Intent(this, OrderTrackingActivity.class);
+                startActivity(intent);
+            });
+        }
     }
 
     @Override
@@ -628,7 +636,6 @@ public class CustomerDashboard extends AppCompatActivity {
         if (showBlockingLoader) loadingProgressBar.setVisibility(View.VISIBLE);
         productList.clear();
         adapter.notifyDataSetChanged();
-        // Just a simple way to load some items
         if (!restaurantList.isEmpty()) {
             fetchMenuForPreview(restaurantList.get(0).id, restaurantList.get(0).name);
         } else {
@@ -743,7 +750,6 @@ public class CustomerDashboard extends AppCompatActivity {
              if (data != null) orders = data.optJSONArray("orders");
         }
         if (orders == null && response.has("items")) {
-            // Some backends might return a single object or different key
             orders = new JSONArray();
             orders.put(response);
         }
@@ -752,8 +758,6 @@ public class CustomerDashboard extends AppCompatActivity {
 
     private JSONObject findActiveOrderInList(JSONArray orders) {
         if (orders == null || orders.length() == 0) return null;
-        
-        // Strategy: find the newest order that is NOT delivered or cancelled.
         for (int i = 0; i < orders.length(); i++) {
             JSONObject order = orders.optJSONObject(i);
             if (order != null) {
@@ -763,18 +767,19 @@ public class CustomerDashboard extends AppCompatActivity {
                 }
             }
         }
-        // If all are delivered/cancelled, return the most recent one (index 0)
         return orders.optJSONObject(0);
     }
 
     private void applyOrderTracking(JSONObject order) {
         if (order == null) {
             orderTrackingLayout.setVisibility(View.GONE);
+            if (btnViewActiveOrders != null) btnViewActiveOrders.setVisibility(View.GONE);
             return;
         }
         activeOrderId = order.optInt("id", order.optInt("order_id", -1));
         activeOrderStatus = normalizeStatus(order.optString("status", "pending"));
         
+        if (btnViewActiveOrders != null) btnViewActiveOrders.setVisibility(View.VISIBLE);
         renderOrderTimeline(activeOrderStatus, order.optString("driver_location", ""));
     }
 
@@ -841,7 +846,6 @@ public class CustomerDashboard extends AppCompatActivity {
         if (raw == null) return Constants.STATUS_PENDING;
         String n = raw.trim().toLowerCase(Locale.ROOT);
         
-        // Legacy alias normalization
         if (n.equals("confirmed")) return Constants.STATUS_ACCEPTED;
         if (n.equals("ready_for_pickup")) return Constants.STATUS_READY;
         if (n.equals("completed")) return Constants.STATUS_DELIVERED;
