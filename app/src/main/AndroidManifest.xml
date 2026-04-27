@@ -27,6 +27,7 @@
         <activity android:name=".CustomerDashboard" android:exported="false"/>
         <activity android:name=".CartActivity" android:exported="false"/>
         <activity android:name=".CheckoutActivity" android:exported="false"/>
+        <activity android:name=".PaymentSimulationActivity" android:exported="false"/>
         <activity android:name=".OrderTrackingActivity" android:exported="false"/>
         <activity android:name=".DriverDashboard" android:exported="false"/>
         <activity android:name=".ForgotPasswordActivity" android:exported="false"/>

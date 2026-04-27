@@ -33,6 +33,7 @@ public class Constants {
     public static final String URL_GET_MENU_BY_RESTAURANT = BASE_URL + "get_menus_by_restaurant.php";
     public static final String URL_GET_MENU_LEGACY = BASE_URL + "get_menus.php";
     public static final String URL_PLACE_ORDER_LEGACY = BASE_URL + "place_order.php";
+    public static final String URL_SIMULATE_PAYMENT = BASE_URL + "simulate-payment.php";
     public static final String URL_GET_ORDERS_LEGACY = BASE_URL + "get_orders.php";
     public static final String URL_GET_DRIVER_ORDERS_LEGACY = BASE_URL + "get_driver_orders.php";
     public static final String URL_UPDATE_ORDER_STATUS_LEGACY = BASE_URL + "update_status.php";

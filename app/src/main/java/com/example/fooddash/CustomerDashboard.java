@@ -107,6 +107,7 @@ public class CustomerDashboard extends AppCompatActivity {
     private final Map<String, CartEntry> globalCart = new LinkedHashMap<>();
     private int activeOrderId = -1;
     private String activeOrderStatus = "";
+    private JSONObject activeOrderSnapshot;
     
     private final List<String> canonicalStatusFlow = Arrays.asList(
             Constants.STATUS_PENDING,
@@ -297,6 +298,27 @@ public class CustomerDashboard extends AppCompatActivity {
     }
 
     private void openOrderTrackingPage() {
+        if (activeOrderId > 0
+                && !Constants.STATUS_DELIVERED.equals(activeOrderStatus)
+                && !Constants.STATUS_CANCELLED.equals(activeOrderStatus)) {
+            Intent intent = new Intent(this, ActiveOrderActivity.class);
+            JSONObject payload = activeOrderSnapshot;
+            if (payload == null) {
+                payload = new JSONObject();
+                try {
+                    payload.put("id", activeOrderId);
+                    payload.put("order_id", activeOrderId);
+                    payload.put("status", activeOrderStatus);
+                    payload.put("delivery_address", deliveryAddressEditText.getText().toString().trim());
+                } catch (Exception ignored) {
+                    // Keep fallback behavior even if snapshot building fails.
+                }
+            }
+            intent.putExtra("order_json", payload.toString());
+            startActivity(intent);
+            return;
+        }
+
         Intent intent = new Intent(this, OrderTrackingActivity.class);
         if (activeOrderId > 0) {
             intent.putExtra("order_id", activeOrderId);
@@ -863,12 +885,16 @@ public class CustomerDashboard extends AppCompatActivity {
 
     private void applyOrderTracking(JSONObject order) {
         if (order == null) {
+            activeOrderId = -1;
+            activeOrderStatus = "";
+            activeOrderSnapshot = null;
             orderTrackingLayout.setVisibility(View.GONE);
             if (btnViewActiveOrders != null) btnViewActiveOrders.setVisibility(View.GONE);
             return;
         }
         activeOrderId = order.optInt("id", order.optInt("order_id", -1));
         activeOrderStatus = normalizeStatus(order.optString("status", "pending"));
+        activeOrderSnapshot = order;
         
         if (btnViewActiveOrders != null) btnViewActiveOrders.setVisibility(View.VISIBLE);
         renderOrderTimeline(activeOrderStatus, order.optString("driver_location", ""));

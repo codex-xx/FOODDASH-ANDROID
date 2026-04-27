@@ -5,12 +5,17 @@ import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.text.TextUtils;
 import android.util.Log;
+import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ProgressBar;
 import android.widget.RadioGroup;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.android.volley.Request;
@@ -40,10 +45,38 @@ public class CheckoutActivity extends AppCompatActivity {
     private final List<OrderGroup> orderGroups = new ArrayList<>();
     private final List<Integer> placedOrderIds = new ArrayList<>();
     private int successfulGroupCount = 0;
+    private boolean isCheckoutInProgress = false;
 
     private EditText checkoutAddressEditText;
     private RadioGroup checkoutVehicleRadioGroup;
+    private RadioGroup checkoutPaymentRadioGroup;
     private TextView checkoutSummaryTextView;
+    private TextView checkoutProcessingMessageTextView;
+    private ProgressBar checkoutPaymentProgress;
+    private Button btnConfirmPlaceOrder;
+    private Button btnBackToCart;
+
+    private String pendingPaymentMethod = "cod";
+    private String pendingAddress = "";
+    private String pendingDeliveryType = Constants.DELIVERY_MOTORCYCLE;
+    private double pendingDeliveryFee = 0.0;
+    private int pendingUserId = -1;
+    private String pendingAuthToken = "";
+
+    private final ActivityResultLauncher<Intent> paymentResultLauncher =
+            registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
+                if (result.getResultCode() == RESULT_OK) {
+                    onPaymentSuccess();
+                    return;
+                }
+
+                setCheckoutUiState(false, "");
+                if (!placedOrderIds.isEmpty()) {
+                    showPaymentRetryDialog();
+                } else {
+                    Toast.makeText(this, "Payment failed. Please try again.", Toast.LENGTH_SHORT).show();
+                }
+            });
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -60,9 +93,12 @@ public class CheckoutActivity extends AppCompatActivity {
 
         checkoutAddressEditText = findViewById(R.id.checkoutAddressEditText);
         checkoutVehicleRadioGroup = findViewById(R.id.checkoutVehicleRadioGroup);
+        checkoutPaymentRadioGroup = findViewById(R.id.checkoutPaymentRadioGroup);
         checkoutSummaryTextView = findViewById(R.id.checkoutSummaryTextView);
-        Button btnConfirmPlaceOrder = findViewById(R.id.btnConfirmPlaceOrder);
-        Button btnBackToCart = findViewById(R.id.btnBackToCart);
+        checkoutProcessingMessageTextView = findViewById(R.id.checkoutProcessingMessageTextView);
+        checkoutPaymentProgress = findViewById(R.id.checkoutPaymentProgress);
+        btnConfirmPlaceOrder = findViewById(R.id.btnConfirmPlaceOrder);
+        btnBackToCart = findViewById(R.id.btnBackToCart);
 
         grandSubtotal = getIntent().getDoubleExtra("subtotal", 0.0);
         cartItemsJson = getIntent().getStringExtra("cart_items_json");
@@ -81,7 +117,10 @@ public class CheckoutActivity extends AppCompatActivity {
         updateSummary();
         checkoutVehicleRadioGroup.setOnCheckedChangeListener((group, checkedId) -> updateSummary());
 
-        btnConfirmPlaceOrder.setOnClickListener(v -> placeOrders());
+        btnConfirmPlaceOrder.setOnClickListener(v -> {
+            if (isCheckoutInProgress) return;
+            placeOrders();
+        });
         btnBackToCart.setOnClickListener(v -> finish());
     }
 
@@ -151,6 +190,13 @@ public class CheckoutActivity extends AppCompatActivity {
         return Constants.DELIVERY_MOTORCYCLE;
     }
 
+    private String getSelectedPaymentMethod() {
+        int checkedId = checkoutPaymentRadioGroup.getCheckedRadioButtonId();
+        if (checkedId == R.id.checkoutRadioMaya) return "maya";
+        if (checkedId == R.id.checkoutRadioCod) return "cod";
+        return "gcash";
+    }
+
     private void placeOrders() {
         String address = checkoutAddressEditText.getText().toString().trim();
         if (address.isEmpty()) {
@@ -169,12 +215,22 @@ public class CheckoutActivity extends AppCompatActivity {
             return;
         }
 
+        pendingPaymentMethod = getSelectedPaymentMethod();
+        pendingAddress = address;
+        pendingDeliveryType = getSelectedDeliveryType();
+        pendingDeliveryFee = getSelectedFee();
+        pendingUserId = userId;
+        pendingAuthToken = token;
+
+        prefs.edit().putString("last_payment_method", pendingPaymentMethod).apply();
+
         successfulGroupCount = 0;
         placedOrderIds.clear();
-        processGroup(0, userId, token, address, getSelectedDeliveryType(), getSelectedFee());
+        setCheckoutUiState(true, "Processing payment...");
+        processGroup(0, pendingUserId, pendingAuthToken, pendingAddress, pendingDeliveryType, pendingDeliveryFee, pendingPaymentMethod);
     }
 
-    private void processGroup(int index, int userId, String token, String address, String type, double fee) {
+    private void processGroup(int index, int userId, String token, String address, String type, double fee, String paymentMethod) {
         if (index >= orderGroups.size()) {
             finalizeCheckout();
             return;
@@ -194,11 +250,11 @@ public class CheckoutActivity extends AppCompatActivity {
             payload.put("subtotal", group.subtotal);
             payload.put("total_amount", total);
             payload.put("status", Constants.STATUS_PENDING);
-            payload.put("payment_method", "cod");
+            payload.put("payment_method", paymentMethod);
             payload.put("items", group.items);
             payload.put("api_token", token);
         } catch (Exception e) {
-            processGroup(index + 1, userId, token, address, type, fee);
+            processGroup(index + 1, userId, token, address, type, fee, paymentMethod);
             return;
         }
 
@@ -206,14 +262,14 @@ public class CheckoutActivity extends AppCompatActivity {
                 response -> {
                     successfulGroupCount++;
                     int id = response.optInt("order_id", response.optInt("id", -1));
-                    if (id > 0) placedOrderIds.add(id);
+                    addPlacedOrderId(id);
                     removeItemsFromGlobalCart(group.items);
-                    processGroup(index + 1, userId, token, address, type, fee);
+                    processGroup(index + 1, userId, token, address, type, fee, paymentMethod);
                 },
                 error -> {
                     Log.e(TAG, "Failed order for " + group.restaurantName, error);
                     // Try legacy as fallback
-                    placeLegacyOrder(index, userId, token, address, type, fee, payload);
+                    placeLegacyOrder(index, userId, token, address, type, fee, paymentMethod, payload);
                 }
         ) {
             @Override
@@ -226,17 +282,19 @@ public class CheckoutActivity extends AppCompatActivity {
         requestQueue.add(request);
     }
 
-    private void placeLegacyOrder(int index, int userId, String token, String address, String type, double fee, JSONObject payload) {
+    private void placeLegacyOrder(int index, int userId, String token, String address, String type, double fee, String paymentMethod, JSONObject payload) {
         OrderGroup group = orderGroups.get(index);
         StringRequest request = new StringRequest(Request.Method.POST, Constants.URL_PLACE_ORDER_LEGACY,
                 response -> {
                     successfulGroupCount++;
+                    int legacyId = extractOrderIdFromLegacyResponse(response);
+                    addPlacedOrderId(legacyId);
                     removeItemsFromGlobalCart(group.items);
-                    processGroup(index + 1, userId, token, address, type, fee);
+                    processGroup(index + 1, userId, token, address, type, fee, paymentMethod);
                 },
                 error -> {
                     Log.e(TAG, "Legacy failed too", error);
-                    processGroup(index + 1, userId, token, address, type, fee);
+                    processGroup(index + 1, userId, token, address, type, fee, paymentMethod);
                 }
         ) {
             @Override
@@ -248,6 +306,7 @@ public class CheckoutActivity extends AppCompatActivity {
                 p.put("delivery_type", type);
                 p.put("delivery_fee", String.valueOf(fee));
                 p.put("total", String.valueOf(group.subtotal + fee));
+                p.put("payment_method", paymentMethod);
                 p.put("items", group.items.toString());
                 p.put("api_token", token);
                 return p;
@@ -280,13 +339,172 @@ public class CheckoutActivity extends AppCompatActivity {
 
     private void finalizeCheckout() {
         if (successfulGroupCount > 0) {
-            Toast.makeText(this, "Order(s) placed successfully!", Toast.LENGTH_LONG).show();
-            Intent intent = new Intent(this, OrderTrackingActivity.class);
-            if (!placedOrderIds.isEmpty()) intent.putExtra("order_id", placedOrderIds.get(0));
-            startActivity(intent);
-            finish();
+            if ("cod".equalsIgnoreCase(pendingPaymentMethod)) {
+                Toast.makeText(this, "Order(s) placed successfully!", Toast.LENGTH_LONG).show();
+                openPostCheckoutOrderScreen();
+            } else {
+                requestSimulatedPaymentCheckoutUrl();
+            }
         } else {
+            setCheckoutUiState(false, "");
             Toast.makeText(this, "Failed to place orders. Please try again.", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void requestSimulatedPaymentCheckoutUrl() {
+        setCheckoutUiState(true, "Processing payment...");
+
+        JSONObject payload = new JSONObject();
+        try {
+            payload.put("payment_method", pendingPaymentMethod);
+            payload.put("user_id", pendingUserId);
+            payload.put("amount", getGrandTotal(pendingDeliveryFee));
+            payload.put("order_ids", new JSONArray(placedOrderIds));
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to build simulated payment payload", e);
+            launchPaymentWebView("");
+            return;
+        }
+
+        JsonObjectRequest request = new JsonObjectRequest(
+                Request.Method.POST,
+                Constants.URL_SIMULATE_PAYMENT,
+                payload,
+                response -> launchPaymentWebView(response.optString("checkout_url", "")),
+                error -> {
+                    Log.e(TAG, "simulate-payment request failed", error);
+                    launchPaymentWebView("");
+                }
+        ) {
+            @Override
+            public Map<String, String> getHeaders() {
+                Map<String, String> h = new HashMap<>();
+                if (!TextUtils.isEmpty(pendingAuthToken)) {
+                    h.put("Authorization", "Bearer " + pendingAuthToken);
+                }
+                return h;
+            }
+        };
+        requestQueue.add(request);
+    }
+
+    private void launchPaymentWebView(String checkoutUrl) {
+        Intent intent = new Intent(this, PaymentSimulationActivity.class);
+        intent.putExtra(PaymentSimulationActivity.EXTRA_CHECKOUT_URL, checkoutUrl);
+        intent.putExtra(PaymentSimulationActivity.EXTRA_PAYMENT_METHOD, pendingPaymentMethod);
+        intent.putExtra(PaymentSimulationActivity.EXTRA_AMOUNT, getGrandTotal(pendingDeliveryFee));
+        paymentResultLauncher.launch(intent);
+    }
+
+    private void retrySimulatedPayment() {
+        requestSimulatedPaymentCheckoutUrl();
+    }
+
+    private void showPaymentRetryDialog() {
+        new AlertDialog.Builder(this)
+                .setTitle("Payment Failed")
+                .setMessage("Your payment did not go through. Would you like to retry?")
+                .setPositiveButton("Retry", (dialog, which) -> retrySimulatedPayment())
+                .setNegativeButton("Cancel", (dialog, which) -> {
+                    dialog.dismiss();
+                    setCheckoutUiState(false, "");
+                })
+                .setCancelable(true)
+                .show();
+    }
+
+    private void onPaymentSuccess() {
+        SharedPreferences prefs = getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
+        prefs.edit()
+            .putString("last_payment_status", "paid")
+            .putString("last_payment_method", pendingPaymentMethod)
+            .apply();
+
+        Toast.makeText(this, "Payment successful. Order marked as paid.", Toast.LENGTH_LONG).show();
+        openPostCheckoutOrderScreen();
+    }
+
+    private void openPostCheckoutOrderScreen() {
+        int primaryOrderId = placedOrderIds.isEmpty() ? -1 : placedOrderIds.get(0);
+        if (primaryOrderId > 0) {
+            try {
+                JSONObject activeOrderPayload = new JSONObject();
+                activeOrderPayload.put("id", primaryOrderId);
+                activeOrderPayload.put("order_id", primaryOrderId);
+                activeOrderPayload.put("status", Constants.STATUS_PENDING);
+                activeOrderPayload.put("delivery_address", pendingAddress);
+                activeOrderPayload.put("payment_method", pendingPaymentMethod);
+                if (!orderGroups.isEmpty()) {
+                    activeOrderPayload.put("restaurant_name", orderGroups.get(0).restaurantName);
+                    activeOrderPayload.put("items", orderGroups.get(0).items);
+                }
+
+                Intent activeIntent = new Intent(this, ActiveOrderActivity.class);
+                activeIntent.putExtra("order_json", activeOrderPayload.toString());
+                activeIntent.putExtra("order_id", primaryOrderId);
+                startActivity(activeIntent);
+                finish();
+                return;
+            } catch (Exception e) {
+                Log.e(TAG, "Failed to build active-order payload", e);
+            }
+        }
+
+        Intent trackingIntent = new Intent(this, OrderTrackingActivity.class);
+        if (primaryOrderId > 0) {
+            trackingIntent.putExtra("order_id", primaryOrderId);
+        }
+        trackingIntent.putExtra("payment_method", pendingPaymentMethod);
+        trackingIntent.putExtra("is_paid", true);
+        startActivity(trackingIntent);
+        finish();
+    }
+
+    private void addPlacedOrderId(int id) {
+        if (id > 0 && !placedOrderIds.contains(id)) {
+            placedOrderIds.add(id);
+        }
+    }
+
+    private int extractOrderIdFromLegacyResponse(String response) {
+        if (TextUtils.isEmpty(response)) {
+            return -1;
+        }
+        try {
+            JSONObject json = new JSONObject(response);
+            int id = json.optInt("order_id", json.optInt("id", -1));
+            if (id > 0) {
+                return id;
+            }
+            JSONObject data = json.optJSONObject("data");
+            if (data != null) {
+                return data.optInt("order_id", data.optInt("id", -1));
+            }
+        } catch (Exception ignored) {
+            // Ignore malformed legacy responses and fall back gracefully.
+        }
+        return -1;
+    }
+
+    private double getGrandTotal(double deliveryFee) {
+        double total = 0.0;
+        for (OrderGroup group : orderGroups) {
+            total += group.subtotal + deliveryFee;
+        }
+        return total;
+    }
+
+    private void setCheckoutUiState(boolean processing, String message) {
+        isCheckoutInProgress = processing;
+        btnConfirmPlaceOrder.setEnabled(!processing);
+        btnBackToCart.setEnabled(!processing);
+        checkoutAddressEditText.setEnabled(!processing);
+        checkoutVehicleRadioGroup.setEnabled(!processing);
+        checkoutPaymentRadioGroup.setEnabled(!processing);
+        checkoutPaymentProgress.setVisibility(processing ? View.VISIBLE : View.GONE);
+        findViewById(R.id.checkoutProcessingContainer).setVisibility(processing ? View.VISIBLE : View.GONE);
+        if (!TextUtils.isEmpty(message)) {
+            checkoutProcessingMessageTextView.setText(message);
         }
     }
 
