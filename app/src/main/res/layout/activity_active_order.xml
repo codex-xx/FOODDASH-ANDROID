@@ -100,6 +100,32 @@
                 android:text="Items: --" />
         </LinearLayout>
 
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:background="@drawable/view_border"
+            android:orientation="vertical"
+            android:padding="15dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="PAYMENT INFORMATION"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textColor="@color/secondary_dark_gray" />
+
+            <TextView
+                android:id="@+id/activePaymentMethod"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Payment Method: --"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
         <TextView
             android:id="@+id/activeOrderStatus"
             android:layout_width="match_parent"

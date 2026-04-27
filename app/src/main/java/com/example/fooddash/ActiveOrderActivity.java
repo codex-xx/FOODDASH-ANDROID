@@ -31,7 +31,7 @@ public class ActiveOrderActivity extends AppCompatActivity {
     private static final long POLL_INTERVAL = 5000L;
 
     private TextView activeOrderIdText, activeCustomerName, activeCustomerContact, activeDeliveryAddress;
-    private TextView activeRestaurantName, activeOrderItems, activeOrderStatus;
+    private TextView activeRestaurantName, activeOrderItems, activeOrderStatus, activePaymentMethod;
     private Button btnPreparing, btnReady, btnArrived, btnPickedUp, btnOnTheWay, btnDelivered, btnBackToDashboard;
 
     private RequestQueue requestQueue;
@@ -59,6 +59,7 @@ public class ActiveOrderActivity extends AppCompatActivity {
         activeRestaurantName = findViewById(R.id.activeRestaurantName);
         activeOrderItems = findViewById(R.id.activeOrderItems);
         activeOrderStatus = findViewById(R.id.activeOrderStatus);
+        activePaymentMethod = findViewById(R.id.activePaymentMethod);
 
         btnPreparing = findViewById(R.id.btnPreparing);
         btnReady = findViewById(R.id.btnReady);
@@ -244,6 +245,20 @@ public class ActiveOrderActivity extends AppCompatActivity {
 
         String finalItems = itemsBuilder.toString().trim();
         activeOrderItems.setText(finalItems.isEmpty() ? "Items:\n(Loading item list...)" : "Items:\n" + finalItems);
+
+        // Render Payment Method
+        String paymentMethodRaw = activeOrder.optString("payment_method", activeOrder.optString("payment_type", ""));
+        String paymentDisplayText = "Payment Method: ";
+        if (paymentMethodRaw.equalsIgnoreCase("cod")) {
+            paymentDisplayText += "Cash on Delivery (COD)";
+        } else if (paymentMethodRaw.equalsIgnoreCase("maya") || paymentMethodRaw.equalsIgnoreCase("gcash") || paymentMethodRaw.equalsIgnoreCase("online")) {
+            paymentDisplayText += "Online Payment";
+        } else if (!paymentMethodRaw.isEmpty()) {
+            paymentDisplayText += paymentMethodRaw.toUpperCase();
+        } else {
+            paymentDisplayText += "N/A";
+        }
+        activePaymentMethod.setText(paymentDisplayText);
         
         String status = normalizeStatus(activeOrder.optString("status", "pending"));
         activeOrderStatus.setText("Status: " + status.replace("_", " ").toUpperCase());
