@@ -30,6 +30,12 @@ public class CartActivity extends AppCompatActivity {
     private TextView subtotalTextView;
     private LinearLayout cartGroupsContainer;
     private Button btnProceedCheckout;
+    private Button tabHomeButton;
+    private Button tabOrdersButton;
+    private Button tabCartButton;
+    private Button tabNotificationsButton;
+    private Button tabProfileButton;
+    private TextView tabCartBadgeTextView;
     private int restaurantId = -1;
     private String cartItemsJson = "[]";
 
@@ -49,6 +55,12 @@ public class CartActivity extends AppCompatActivity {
         cartGroupsContainer = findViewById(R.id.cartGroupsContainer);
         btnProceedCheckout = findViewById(R.id.btnProceedCheckout);
         Button btnBackToMenu = findViewById(R.id.btnBackToMenu);
+        tabHomeButton = findViewById(R.id.tabHomeButton);
+        tabOrdersButton = findViewById(R.id.tabOrdersButton);
+        tabCartButton = findViewById(R.id.tabCartButton);
+        tabNotificationsButton = findViewById(R.id.tabNotificationsButton);
+        tabProfileButton = findViewById(R.id.tabProfileButton);
+        tabCartBadgeTextView = findViewById(R.id.tabCartBadgeTextView);
 
         restaurantId = getIntent().getIntExtra("restaurant_id", -1);
         cartItemsJson = getIntent().getStringExtra("cart_items_json");
@@ -57,6 +69,7 @@ public class CartActivity extends AppCompatActivity {
         }
 
         parseCartItems(cartItemsJson);
+        setupBottomNavigation();
 
         cartHeaderTextView.setText("Grouped Cart Summary");
         refreshCartUI(false);
@@ -102,6 +115,7 @@ public class CartActivity extends AppCompatActivity {
     private void refreshCartUI(boolean persistCart) {
         renderGroupedCart();
         updateSelectedSummary();
+        updateCartBadge();
         if (persistCart) {
             persistGlobalCart();
         }
@@ -308,6 +322,79 @@ public class CartActivity extends AppCompatActivity {
             } catch (Exception ignored) {}
         }
         getSharedPreferences("fooddash_prefs", MODE_PRIVATE).edit().putString("global_cart_json", array.toString()).apply();
+    }
+
+    private void setupBottomNavigation() {
+        highlightBottomTab(tabCartButton);
+
+        if (tabHomeButton != null) {
+            tabHomeButton.setOnClickListener(v -> {
+                highlightBottomTab(tabHomeButton);
+                Intent intent = new Intent(this, CustomerDashboard.class);
+                intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                startActivity(intent);
+                finish();
+            });
+        }
+
+        if (tabOrdersButton != null) {
+            tabOrdersButton.setOnClickListener(v -> {
+                highlightBottomTab(tabOrdersButton);
+                startActivity(new Intent(this, OrderTrackingActivity.class));
+                finish();
+            });
+        }
+
+        if (tabCartButton != null) {
+            tabCartButton.setOnClickListener(v -> highlightBottomTab(tabCartButton));
+        }
+
+        if (tabNotificationsButton != null) {
+            tabNotificationsButton.setOnClickListener(v -> {
+                highlightBottomTab(tabNotificationsButton);
+                startActivity(new Intent(this, NotificationActivity.class));
+                finish();
+            });
+        }
+
+        if (tabProfileButton != null) {
+            tabProfileButton.setOnClickListener(v -> {
+                highlightBottomTab(tabProfileButton);
+                startActivity(new Intent(this, ProfileActivity.class));
+                finish();
+            });
+        }
+    }
+
+    private void highlightBottomTab(Button selected) {
+        applyBottomTabStyle(tabHomeButton, selected == tabHomeButton);
+        applyBottomTabStyle(tabOrdersButton, selected == tabOrdersButton);
+        applyBottomTabStyle(tabCartButton, selected == tabCartButton);
+        applyBottomTabStyle(tabNotificationsButton, selected == tabNotificationsButton);
+        applyBottomTabStyle(tabProfileButton, selected == tabProfileButton);
+    }
+
+    private void applyBottomTabStyle(Button tab, boolean isSelected) {
+        if (tab == null) return;
+        if (isSelected) {
+            tab.setBackgroundResource(R.drawable.bottom_nav_tab_selected);
+            tab.setTextColor(getResources().getColor(R.color.white));
+        } else {
+            tab.setBackgroundResource(R.drawable.bottom_nav_tab_unselected);
+            tab.setTextColor(getResources().getColor(R.color.black));
+        }
+    }
+
+    private void updateCartBadge() {
+        if (tabCartBadgeTextView == null) return;
+        int totalItems = 0;
+        for (CartItem item : cartItems) totalItems += item.quantity;
+        if (totalItems <= 0) {
+            tabCartBadgeTextView.setVisibility(View.GONE);
+            return;
+        }
+        tabCartBadgeTextView.setVisibility(View.VISIBLE);
+        tabCartBadgeTextView.setText(totalItems > 99 ? "99+" : String.valueOf(totalItems));
     }
 
     private static class CartItem {

@@ -72,8 +72,14 @@ public class CustomerDashboard extends AppCompatActivity {
     private TextView searchNoResultsTextView;
     private EditText searchEditText;
     private EditText deliveryAddressEditText;
-    private Button btnPlaceOrder, btnLogout;
+    private Button btnPlaceOrder;
     private ImageButton btnViewActiveOrders;
+    private Button tabHomeButton;
+    private Button tabOrdersButton;
+    private Button tabCartButton;
+    private Button tabNotificationsButton;
+    private Button tabProfileButton;
+    private TextView tabCartBadgeTextView;
     private RadioGroup vehicleRadioGroup;
     private TextView totalPriceTextView;
     private LinearLayout orderTrackingLayout;
@@ -163,8 +169,13 @@ public class CustomerDashboard extends AppCompatActivity {
         searchEditText = findViewById(R.id.searchEditText);
         deliveryAddressEditText = findViewById(R.id.deliveryAddressEditText);
         btnPlaceOrder = findViewById(R.id.btnPlaceOrder);
-        btnLogout = findViewById(R.id.btnLogout);
         btnViewActiveOrders = findViewById(R.id.btnViewActiveOrders);
+        tabHomeButton = findViewById(R.id.tabHomeButton);
+        tabOrdersButton = findViewById(R.id.tabOrdersButton);
+        tabCartButton = findViewById(R.id.tabCartButton);
+        tabNotificationsButton = findViewById(R.id.tabNotificationsButton);
+        tabProfileButton = findViewById(R.id.tabProfileButton);
+        tabCartBadgeTextView = findViewById(R.id.tabCartBadgeTextView);
         vehicleRadioGroup = findViewById(R.id.vehicleRadioGroup);
         totalPriceTextView = findViewById(R.id.totalPriceTextView);
         orderTrackingLayout = findViewById(R.id.orderTrackingLayout);
@@ -195,8 +206,10 @@ public class CustomerDashboard extends AppCompatActivity {
         searchMenuItemsRecyclerView.setAdapter(searchMenuItemAdapter);
 
         setupSearchInput();
+        setupBottomNavigation();
         setupDeliveryDefaults();
         updateCartButtonState();
+        updateCartTabBadge();
 
         swipeRefreshLayout.setOnRefreshListener(() -> {
             String query = searchEditText.getText().toString().trim();
@@ -210,24 +223,85 @@ public class CustomerDashboard extends AppCompatActivity {
         selectedRestaurantTextView.setText("Mixed picks from partner restaurants");
         updateOrderControlsState();
 
-        btnPlaceOrder.setOnClickListener(v -> openCartPage());
+        if (btnPlaceOrder != null) {
+            btnPlaceOrder.setOnClickListener(v -> openCartPage());
+        }
 
         vehicleRadioGroup.setOnCheckedChangeListener((group, checkedId) -> calculateTotalPrice());
 
-        btnLogout.setOnClickListener(v -> {
-            AuthSessionManager.clearSession(this);
-            SharedPreferences prefs = getApplicationContext().getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
-            prefs.edit().clear().apply();
-            startActivity(new Intent(this, LoginActivity.class));
-            finish();
-        });
-
         if (btnViewActiveOrders != null) {
-            btnViewActiveOrders.setOnClickListener(v -> {
-                Intent intent = new Intent(this, OrderTrackingActivity.class);
-                startActivity(intent);
+            btnViewActiveOrders.setOnClickListener(v -> openOrderTrackingPage());
+        }
+    }
+
+    private void setupBottomNavigation() {
+        highlightBottomTab(tabHomeButton);
+
+        if (tabHomeButton != null) {
+            tabHomeButton.setOnClickListener(v -> {
+                highlightBottomTab(tabHomeButton);
+                if (isSearchMode) {
+                    searchEditText.setText("");
+                    exitSearchMode();
+                }
+                productsRecyclerView.smoothScrollToPosition(0);
             });
         }
+
+        if (tabOrdersButton != null) {
+            tabOrdersButton.setOnClickListener(v -> {
+                highlightBottomTab(tabOrdersButton);
+                openOrderTrackingPage();
+            });
+        }
+
+        if (tabCartButton != null) {
+            tabCartButton.setOnClickListener(v -> {
+                highlightBottomTab(tabCartButton);
+                openCartPage();
+            });
+        }
+
+        if (tabNotificationsButton != null) {
+            tabNotificationsButton.setOnClickListener(v -> {
+                highlightBottomTab(tabNotificationsButton);
+                startActivity(new Intent(this, NotificationActivity.class));
+            });
+        }
+
+        if (tabProfileButton != null) {
+            tabProfileButton.setOnClickListener(v -> {
+                highlightBottomTab(tabProfileButton);
+                startActivity(new Intent(this, ProfileActivity.class));
+            });
+        }
+    }
+
+    private void highlightBottomTab(Button selected) {
+        applyBottomTabStyle(tabHomeButton, selected == tabHomeButton);
+        applyBottomTabStyle(tabOrdersButton, selected == tabOrdersButton);
+        applyBottomTabStyle(tabCartButton, selected == tabCartButton);
+        applyBottomTabStyle(tabNotificationsButton, selected == tabNotificationsButton);
+        applyBottomTabStyle(tabProfileButton, selected == tabProfileButton);
+    }
+
+    private void applyBottomTabStyle(Button tab, boolean isSelected) {
+        if (tab == null) return;
+        if (isSelected) {
+            tab.setBackgroundResource(R.drawable.bottom_nav_tab_selected);
+            tab.setTextColor(getResources().getColor(R.color.white));
+        } else {
+            tab.setBackgroundResource(R.drawable.bottom_nav_tab_unselected);
+            tab.setTextColor(getResources().getColor(R.color.black));
+        }
+    }
+
+    private void openOrderTrackingPage() {
+        Intent intent = new Intent(this, OrderTrackingActivity.class);
+        if (activeOrderId > 0) {
+            intent.putExtra("order_id", activeOrderId);
+        }
+        startActivity(intent);
     }
 
     @Override
@@ -235,6 +309,7 @@ public class CustomerDashboard extends AppCompatActivity {
         super.onResume();
         loadGlobalCart();
         updateCartButtonState();
+        updateCartTabBadge();
         if (restaurantId > 0) {
             fetchMenu(false);
         } else {
@@ -546,7 +621,9 @@ public class CustomerDashboard extends AppCompatActivity {
     }
 
     private void updateOrderControlsState() {
-        btnPlaceOrder.setVisibility(View.VISIBLE);
+        if (btnPlaceOrder != null) {
+            btnPlaceOrder.setVisibility(View.GONE);
+        }
         updateCartButtonState();
     }
 
@@ -579,7 +656,21 @@ public class CustomerDashboard extends AppCompatActivity {
     }
 
     private void updateCartButtonState() {
-        btnPlaceOrder.setText("Cart (" + getGlobalCartItemCount() + ")");
+        if (btnPlaceOrder != null) {
+            btnPlaceOrder.setText("Cart (" + getGlobalCartItemCount() + ")");
+        }
+        updateCartTabBadge();
+    }
+
+    private void updateCartTabBadge() {
+        if (tabCartBadgeTextView == null) return;
+        int count = getGlobalCartItemCount();
+        if (count <= 0) {
+            tabCartBadgeTextView.setVisibility(View.GONE);
+            return;
+        }
+        tabCartBadgeTextView.setVisibility(View.VISIBLE);
+        tabCartBadgeTextView.setText(count > 99 ? "99+" : String.valueOf(count));
     }
 
     private int getGlobalCartItemCount() {

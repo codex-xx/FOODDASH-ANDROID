@@ -35,6 +35,8 @@
         <activity android:name=".ResetPasswordActivity" android:exported="false"/>
         <activity android:name=".ActiveOrderActivity" android:exported="false"/>
         <activity android:name=".DriverHistoryActivity" android:exported="false"/>
+        <activity android:name=".NotificationActivity" android:exported="false"/>
+        <activity android:name=".ProfileActivity" android:exported="false"/>
 
     </application>
 </manifest>

@@ -42,6 +42,12 @@ public class OrderTrackingActivity extends AppCompatActivity {
 
     private LinearLayout ordersContainer;
     private Button btnBackToDashboard;
+    private Button tabHomeButton;
+    private Button tabOrdersButton;
+    private Button tabCartButton;
+    private Button tabNotificationsButton;
+    private Button tabProfileButton;
+    private TextView tabCartBadgeTextView;
 
     private int expectedOrderId = -1;
     private final List<String> timeline = Arrays.asList(
@@ -71,6 +77,12 @@ public class OrderTrackingActivity extends AppCompatActivity {
 
         ordersContainer = findViewById(R.id.ordersContainer);
         btnBackToDashboard = findViewById(R.id.btnBackToDashboard);
+        tabHomeButton = findViewById(R.id.tabHomeButton);
+        tabOrdersButton = findViewById(R.id.tabOrdersButton);
+        tabCartButton = findViewById(R.id.tabCartButton);
+        tabNotificationsButton = findViewById(R.id.tabNotificationsButton);
+        tabProfileButton = findViewById(R.id.tabProfileButton);
+        tabCartBadgeTextView = findViewById(R.id.tabCartBadgeTextView);
 
         btnBackToDashboard.setOnClickListener(v -> {
             Intent intent = new Intent(this, CustomerDashboard.class);
@@ -78,6 +90,9 @@ public class OrderTrackingActivity extends AppCompatActivity {
             startActivity(intent);
             finish();
         });
+
+        setupBottomNavigation();
+        updateCartBadgeFromPrefs();
         
         pollOrders();
     }
@@ -85,6 +100,7 @@ public class OrderTrackingActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        updateCartBadgeFromPrefs();
         startPolling();
     }
 
@@ -116,6 +132,109 @@ public class OrderTrackingActivity extends AppCompatActivity {
         // Try both modern and legacy endpoints to ensure we find the order
         fetchOrdersFromEndpoint(Constants.URL_ORDERS + "/" + userId, false);
         fetchOrdersFromEndpoint(Constants.URL_GET_ORDERS_LEGACY + "?user_id=" + userId, true);
+    }
+
+    private void setupBottomNavigation() {
+        highlightBottomTab(tabOrdersButton);
+
+        if (tabHomeButton != null) {
+            tabHomeButton.setOnClickListener(v -> {
+                highlightBottomTab(tabHomeButton);
+                Intent intent = new Intent(this, CustomerDashboard.class);
+                intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                startActivity(intent);
+                finish();
+            });
+        }
+
+        if (tabOrdersButton != null) {
+            tabOrdersButton.setOnClickListener(v -> highlightBottomTab(tabOrdersButton));
+        }
+
+        if (tabCartButton != null) {
+            tabCartButton.setOnClickListener(v -> {
+                highlightBottomTab(tabCartButton);
+                openCartFromPrefs();
+            });
+        }
+
+        if (tabNotificationsButton != null) {
+            tabNotificationsButton.setOnClickListener(v -> {
+                highlightBottomTab(tabNotificationsButton);
+                startActivity(new Intent(this, NotificationActivity.class));
+                finish();
+            });
+        }
+
+        if (tabProfileButton != null) {
+            tabProfileButton.setOnClickListener(v -> {
+                highlightBottomTab(tabProfileButton);
+                startActivity(new Intent(this, ProfileActivity.class));
+                finish();
+            });
+        }
+    }
+
+    private void highlightBottomTab(Button selected) {
+        applyBottomTabStyle(tabHomeButton, selected == tabHomeButton);
+        applyBottomTabStyle(tabOrdersButton, selected == tabOrdersButton);
+        applyBottomTabStyle(tabCartButton, selected == tabCartButton);
+        applyBottomTabStyle(tabNotificationsButton, selected == tabNotificationsButton);
+        applyBottomTabStyle(tabProfileButton, selected == tabProfileButton);
+    }
+
+    private void applyBottomTabStyle(Button tab, boolean isSelected) {
+        if (tab == null) return;
+        if (isSelected) {
+            tab.setBackgroundResource(R.drawable.bottom_nav_tab_selected);
+            tab.setTextColor(getResources().getColor(R.color.white));
+        } else {
+            tab.setBackgroundResource(R.drawable.bottom_nav_tab_unselected);
+            tab.setTextColor(getResources().getColor(R.color.black));
+        }
+    }
+
+    private void updateCartBadgeFromPrefs() {
+        if (tabCartBadgeTextView == null) return;
+        int count = getCartItemCountFromPrefs();
+        if (count <= 0) {
+            tabCartBadgeTextView.setVisibility(View.GONE);
+            return;
+        }
+        tabCartBadgeTextView.setVisibility(View.VISIBLE);
+        tabCartBadgeTextView.setText(count > 99 ? "99+" : String.valueOf(count));
+    }
+
+    private int getCartItemCountFromPrefs() {
+        SharedPreferences prefs = getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
+        int count = 0;
+        try {
+            JSONArray array = new JSONArray(prefs.getString("global_cart_json", "[]"));
+            for (int i = 0; i < array.length(); i++) {
+                JSONObject obj = array.optJSONObject(i);
+                if (obj != null) count += obj.optInt("quantity", 0);
+            }
+        } catch (Exception ignored) {}
+        return count;
+    }
+
+    private void openCartFromPrefs() {
+        SharedPreferences prefs = getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
+        String cartJson = prefs.getString("global_cart_json", "[]");
+        try {
+            JSONArray cart = new JSONArray(cartJson);
+            if (cart.length() == 0) {
+                Toast.makeText(this, "Cart is empty", Toast.LENGTH_SHORT).show();
+                return;
+            }
+        } catch (Exception ignored) {
+            Toast.makeText(this, "Cart is empty", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Intent intent = new Intent(this, CartActivity.class);
+        intent.putExtra("cart_items_json", cartJson);
+        startActivity(intent);
+        finish();
     }
 
     private void fetchOrdersFromEndpoint(String url, boolean isLegacy) {
