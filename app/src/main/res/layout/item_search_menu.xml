@@ -55,6 +55,17 @@
                 android:textColor="@android:color/black"
                 android:textSize="14sp"
                 android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/searchMenuUnavailableTextView"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Currently Unavailable"
+                android:textColor="@android:color/holo_red_dark"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
         </LinearLayout>
     </LinearLayout>
 

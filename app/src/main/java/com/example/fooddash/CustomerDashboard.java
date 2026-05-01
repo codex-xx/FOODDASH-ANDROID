@@ -129,8 +129,12 @@ public class CustomerDashboard extends AppCompatActivity {
     private final Runnable menuPollingRunnable = new Runnable() {
         @Override
         public void run() {
-            if (!isSearchMode && restaurantId > 0) {
-                fetchMenu(false);
+            if (!isSearchMode) {
+                if (restaurantId > 0) {
+                    fetchMenu(false);
+                } else {
+                    fetchMixedMenuPreview(false);
+                }
             }
             pollingHandler.postDelayed(this, POLLING_INTERVAL_MS);
         }
@@ -495,7 +499,11 @@ public class CustomerDashboard extends AppCompatActivity {
                 String resName = item.optString("restaurant_name", "");
                 double price = item.optDouble("price", 0.0);
                 String imageUrl = normalizeImageUrl(item.optString("image_url", ""));
-                searchMenuItems.add(new SearchMenuItem(menuId, name, resId, resName, price, imageUrl));
+                
+                // Track availability in search results too
+                boolean available = isItemAvailable(item);
+
+                searchMenuItems.add(new SearchMenuItem(menuId, name, resId, resName, price, imageUrl, available));
             }
         }
 
@@ -747,8 +755,7 @@ public class CustomerDashboard extends AppCompatActivity {
 
     private void fetchMixedMenuPreview(boolean showBlockingLoader) {
         if (showBlockingLoader) loadingProgressBar.setVisibility(View.VISIBLE);
-        productList.clear();
-        adapter.notifyDataSetChanged();
+        
         if (!restaurantList.isEmpty()) {
             fetchMenuForPreview(restaurantList.get(0).id, restaurantList.get(0).name);
         } else {
@@ -758,9 +765,15 @@ public class CustomerDashboard extends AppCompatActivity {
 
     private void fetchMenuForPreview(int resId, String resName) {
         requestMenuArrayForRestaurant(resId, response -> {
+            productList.clear();
             for (int i = 0; i < Math.min(response.length(), 6); i++) {
                 JSONObject obj = response.optJSONObject(i);
-                if (obj != null) productList.add(parseProductFromJson(obj, resId, resName, true));
+                if (obj != null) {
+                    Product p = parseProductFromJson(obj, resId, resName, true);
+                    CartEntry ce = globalCart.get("res:" + resId + ":id:" + p.id);
+                    if (ce != null) p.quantity = ce.quantity;
+                    productList.add(p);
+                }
             }
             loadingProgressBar.setVisibility(View.GONE);
             adapter.notifyDataSetChanged();
@@ -987,14 +1000,37 @@ public class CustomerDashboard extends AppCompatActivity {
         return headers;
     }
 
+    private boolean isItemAvailable(JSONObject item) {
+        boolean available = true;
+        
+        // Handle all common availability keys and data types (String, Int, Boolean)
+        if (item.has("is_available")) {
+            String val = item.optString("is_available", "1");
+            available = val.equals("1") || val.equalsIgnoreCase("true");
+        } else if (item.has("available")) {
+            String val = item.optString("available", "1");
+            available = val.equals("1") || val.equalsIgnoreCase("true");
+        } else if (item.has("status")) {
+            String val = item.optString("status", "").toLowerCase();
+            available = val.equals("available") || val.equals("active") || val.equals("1");
+        } else if (item.has("stock")) {
+            available = item.optInt("stock", 1) > 0;
+        }
+        
+        return available;
+    }
+
     private Product parseProductFromJson(JSONObject item, int resId, String resName, boolean includeRes) {
         int id = item.optInt("id", -1);
         String name = item.optString("name", "Item");
         String desc = item.optString("description", "");
         double price = item.optDouble("price", 0.0);
         String img = normalizeImageUrl(item.optString("image_url", item.optString("image", "")));
+        
+        boolean available = isItemAvailable(item);
+        
         if (includeRes && !TextUtils.isEmpty(resName)) desc = "From " + resName + " - " + desc;
-        return new Product(id, name, desc, price, img, true, resId, resName);
+        return new Product(id, name, desc, price, img, available, resId, resName);
     }
 
     private String normalizeImageUrl(String url) {
@@ -1085,9 +1121,9 @@ public class CustomerDashboard extends AppCompatActivity {
     }
 
     private static class SearchMenuItem {
-        int id, restaurantId; String name, restaurantName, imageUrl; double price;
-        SearchMenuItem(int id, String name, int resId, String resName, double price, String img) {
-            this.id = id; this.name = name; this.restaurantId = resId; this.restaurantName = resName; this.price = price; this.imageUrl = img;
+        int id, restaurantId; String name, restaurantName, imageUrl; double price; boolean isAvailable;
+        SearchMenuItem(int id, String name, int resId, String resName, double price, String img, boolean available) {
+            this.id = id; this.name = name; this.restaurantId = resId; this.restaurantName = resName; this.price = price; this.imageUrl = img; this.isAvailable = available;
         }
     }
 
@@ -1120,12 +1156,28 @@ public class CustomerDashboard extends AppCompatActivity {
             SearchMenuItem i = list.get(p);
             h.name.setText(i.name); h.res.setText(i.restaurantName); h.price.setText("₱" + String.format("%.2f", i.price));
             Glide.with(h.itemView).load(i.imageUrl).into(h.img);
-            h.itemView.setOnClickListener(v -> navigateToMenuItemFromSearch(i));
+            
+            if (i.isAvailable) {
+                h.itemView.setAlpha(1.0f);
+                h.unavailableText.setVisibility(View.GONE);
+                h.itemView.setOnClickListener(v -> navigateToMenuItemFromSearch(i));
+            } else {
+                h.itemView.setAlpha(0.6f);
+                h.unavailableText.setVisibility(View.VISIBLE);
+                h.itemView.setOnClickListener(null);
+            }
         }
         @Override public int getItemCount() { return list.size(); }
         class ViewHolder extends RecyclerView.ViewHolder {
-            ImageView img; TextView name, res, price;
-            ViewHolder(View v) { super(v); img = v.findViewById(R.id.searchMenuImageView); name = v.findViewById(R.id.searchMenuNameTextView); res = v.findViewById(R.id.searchMenuRestaurantTextView); price = v.findViewById(R.id.searchMenuPriceTextView); }
+            ImageView img; TextView name, res, price, unavailableText;
+            ViewHolder(View v) { 
+                super(v); 
+                img = v.findViewById(R.id.searchMenuImageView); 
+                name = v.findViewById(R.id.searchMenuNameTextView); 
+                res = v.findViewById(R.id.searchMenuRestaurantTextView); 
+                price = v.findViewById(R.id.searchMenuPriceTextView); 
+                unavailableText = v.findViewById(R.id.searchMenuUnavailableTextView);
+            }
         }
     }
 
@@ -1139,13 +1191,53 @@ public class CustomerDashboard extends AppCompatActivity {
             Product pr = list.get(p);
             h.name.setText(pr.name); h.desc.setText(pr.description); h.price.setText("₱" + String.format("%.2f", pr.price)); h.qty.setText(String.valueOf(pr.quantity));
             Glide.with(h.itemView).load(pr.imageUrl).into(h.img);
-            h.plus.setOnClickListener(v -> { pr.quantity++; h.qty.setText(String.valueOf(pr.quantity)); syncProductWithGlobalCart(pr); });
-            h.minus.setOnClickListener(v -> { if (pr.quantity > 0) { pr.quantity--; h.qty.setText(String.valueOf(pr.quantity)); syncProductWithGlobalCart(pr); } });
+            
+            if (pr.isAvailable) {
+                h.itemView.setAlpha(1.0f);
+                h.unavailableText.setVisibility(View.GONE);
+                h.controlsLayout.setVisibility(View.VISIBLE);
+                
+                h.plus.setOnClickListener(v -> { 
+                    pr.quantity++; 
+                    h.qty.setText(String.valueOf(pr.quantity)); 
+                    syncProductWithGlobalCart(pr); 
+                });
+                h.minus.setOnClickListener(v -> { 
+                    if (pr.quantity > 0) { 
+                        pr.quantity--; 
+                        h.qty.setText(String.valueOf(pr.quantity)); 
+                        syncProductWithGlobalCart(pr); 
+                    } 
+                });
+            } else {
+                h.itemView.setAlpha(0.6f);
+                h.unavailableText.setVisibility(View.VISIBLE);
+                h.controlsLayout.setVisibility(View.GONE);
+                h.plus.setOnClickListener(null);
+                h.minus.setOnClickListener(null);
+                
+                if (pr.quantity > 0) {
+                    pr.quantity = 0;
+                    h.qty.setText("0");
+                    syncProductWithGlobalCart(pr);
+                }
+            }
         }
         @Override public int getItemCount() { return list.size(); }
         class ViewHolder extends RecyclerView.ViewHolder {
-            ImageView img; TextView name, desc, price, qty; ImageButton plus, minus;
-            ViewHolder(View v) { super(v); img = v.findViewById(R.id.productImageView); name = v.findViewById(R.id.productNameTextView); desc = v.findViewById(R.id.productDescriptionTextView); price = v.findViewById(R.id.productPriceTextView); qty = v.findViewById(R.id.quantityTextView); plus = v.findViewById(R.id.plusButton); minus = v.findViewById(R.id.minusButton); }
+            ImageView img; TextView name, desc, price, qty, unavailableText; ImageButton plus, minus; View controlsLayout;
+            ViewHolder(View v) { 
+                super(v); 
+                img = v.findViewById(R.id.productImageView); 
+                name = v.findViewById(R.id.productNameTextView); 
+                desc = v.findViewById(R.id.productDescriptionTextView); 
+                price = v.findViewById(R.id.productPriceTextView); 
+                qty = v.findViewById(R.id.quantityTextView); 
+                plus = v.findViewById(R.id.plusButton); 
+                minus = v.findViewById(R.id.minusButton);
+                unavailableText = v.findViewById(R.id.unavailableTextView);
+                controlsLayout = v.findViewById(R.id.quantityControlsLayout);
+            }
         }
     }
 }
