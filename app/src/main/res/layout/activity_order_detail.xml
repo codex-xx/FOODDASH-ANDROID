@@ -34,11 +34,39 @@
                 android:text="Order #" />
 
             <TextView
+                android:id="@+id/tvDate"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="Date:" />
+
+            <TextView
                 android:id="@+id/tvStatus"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
                 android:text="Status:" />
+
+            <TextView
+                android:id="@+id/tvCustomerName"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="Customer:" />
+
+            <TextView
+                android:id="@+id/tvCustomerContact"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Contact:" />
+
+            <TextView
+                android:id="@+id/tvCustomerAddress"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Address:" />
 
             <TextView
                 android:id="@+id/tvRestaurant"

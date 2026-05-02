@@ -26,13 +26,17 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Locale;
 
 public class DriverHistoryActivity extends AppCompatActivity {
 
     private static final String TAG = "DriverHistoryActivity";
+    private static final String DRIVER_HISTORY_PREFS_NAME = "fooddash_driver_history_cache";
+    private static final String KEY_DRIVER_DELIVERY_HISTORY = "driver_delivery_history_json";
     private RecyclerView historyRecyclerView;
     private HistoryAdapter adapter;
     private List<JSONObject> historyList = new ArrayList<>();
@@ -101,8 +105,9 @@ public class DriverHistoryActivity extends AppCompatActivity {
             return;
         }
 
-        // Fetching delivered orders for this driver
-        String url = Constants.URL_ORDERS + "?driver_id=" + driverId + "&status=" + Constants.STATUS_DELIVERED;
+        // Fetch all orders for this driver and filter delivered locally.
+        // Some API variants ignore combined driver/status filters, which would hide valid history items.
+        String url = Constants.URL_ORDERS + "?driver_id=" + driverId;
         
         JsonObjectRequest request = new JsonObjectRequest(
                 Request.Method.GET,
@@ -129,7 +134,7 @@ public class DriverHistoryActivity extends AppCompatActivity {
     }
 
     private void fetchHistoryLegacy(int driverId, String token) {
-        String url = Constants.URL_GET_DRIVER_ORDERS_LEGACY + "?driver_id=" + driverId + "&status=" + Constants.STATUS_DELIVERED;
+        String url = Constants.URL_GET_DRIVER_ORDERS_LEGACY + "?driver_id=" + driverId;
         
         JsonObjectRequest request = new JsonObjectRequest(
                 Request.Method.GET,
@@ -156,21 +161,80 @@ public class DriverHistoryActivity extends AppCompatActivity {
 
     private void parseHistory(JSONObject response) {
         historyList.clear();
+        Map<Integer, JSONObject> uniqueOrders = new HashMap<>();
+        addOrdersFromResponse(uniqueOrders, response);
+        addOrdersFromLocalCache(uniqueOrders);
+
+        historyList.addAll(uniqueOrders.values());
+        Collections.sort(historyList, (left, right) -> {
+            int rightId = right.optInt("id", right.optInt("order_id", -1));
+            int leftId = left.optInt("id", left.optInt("order_id", -1));
+            return Integer.compare(rightId, leftId);
+        });
+
+        noHistoryTextView.setVisibility(historyList.isEmpty() ? View.VISIBLE : View.GONE);
+        adapter.notifyDataSetChanged();
+    }
+
+    private void addOrdersFromResponse(Map<Integer, JSONObject> uniqueOrders, JSONObject response) {
         JSONArray orders = response.optJSONArray("orders");
         if (orders == null) orders = response.optJSONArray("data");
-        
-        if (orders != null && orders.length() > 0) {
-            for (int i = 0; i < orders.length(); i++) {
-                JSONObject order = orders.optJSONObject(i);
-                if (order != null) {
-                    historyList.add(order);
+        if (orders == null) {
+            JSONObject data = response.optJSONObject("data");
+            if (data != null) {
+                orders = data.optJSONArray("orders");
+            }
+        }
+        if (orders == null && (response.has("id") || response.has("order_id") || response.has("status"))) {
+            orders = new JSONArray();
+            orders.put(response);
+        }
+
+        if (orders == null) {
+            return;
+        }
+
+        for (int i = 0; i < orders.length(); i++) {
+            JSONObject order = orders.optJSONObject(i);
+            if (order == null) {
+                continue;
+            }
+
+            String status = ActiveOrderActivity.normalizeStatus(order.optString("status", ""));
+            if (!Constants.STATUS_DELIVERED.equals(status)) {
+                continue;
+            }
+
+            int id = order.optInt("id", order.optInt("order_id", -1));
+            if (id > 0) {
+                uniqueOrders.put(id, order);
+            }
+        }
+    }
+
+    private void addOrdersFromLocalCache(Map<Integer, JSONObject> uniqueOrders) {
+        try {
+            SharedPreferences prefs = getSharedPreferences(DRIVER_HISTORY_PREFS_NAME, MODE_PRIVATE);
+            JSONArray localHistory = new JSONArray(prefs.getString(KEY_DRIVER_DELIVERY_HISTORY, "[]"));
+            for (int i = 0; i < localHistory.length(); i++) {
+                JSONObject order = localHistory.optJSONObject(i);
+                if (order == null) {
+                    continue;
+                }
+
+                String status = ActiveOrderActivity.normalizeStatus(order.optString("status", ""));
+                if (!Constants.STATUS_DELIVERED.equals(status)) {
+                    continue;
+                }
+
+                int id = order.optInt("id", order.optInt("order_id", -1));
+                if (id > 0 && !uniqueOrders.containsKey(id)) {
+                    uniqueOrders.put(id, order);
                 }
             }
-            noHistoryTextView.setVisibility(View.GONE);
-        } else {
-            noHistoryTextView.setVisibility(View.VISIBLE);
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to read local driver delivery history", e);
         }
-        adapter.notifyDataSetChanged();
     }
 
     private int getDriverId() {
@@ -200,12 +264,16 @@ public class DriverHistoryActivity extends AppCompatActivity {
             JSONObject order = items.get(position);
             int id = order.optInt("id", order.optInt("order_id", -1));
             holder.orderId.setText("Order #" + id);
-            holder.status.setText(order.optString("status", "DELIVERED").toUpperCase());
-            holder.restaurantName.setText(order.optString("restaurant_name", "Restaurant"));
-            holder.customerName.setText("Customer: " + order.optString("customer_name", "N/A"));
-            holder.address.setText("Address: " + order.optString("delivery_address", order.optString("address", "N/A")));
-            holder.date.setText("Date: " + order.optString("created_at", "Recent"));
-            holder.amount.setText("Total: P" + String.format("%.2f", order.optDouble("total_amount", order.optDouble("total", 0.0))));
+            holder.viewDetailsButton.setOnClickListener(v -> {
+                try {
+                    Intent intent = new Intent(v.getContext(), OrderDetailActivity.class);
+                    intent.putExtra("order_json", order.toString());
+                    intent.putExtra("show_driver_details", false);
+                    v.getContext().startActivity(intent);
+                } catch (Exception e) {
+                    Toast.makeText(v.getContext(), "Unable to open order details", Toast.LENGTH_SHORT).show();
+                }
+            });
         }
 
         @Override
@@ -214,18 +282,23 @@ public class DriverHistoryActivity extends AppCompatActivity {
         }
 
         static class ViewHolder extends RecyclerView.ViewHolder {
-            TextView orderId, status, restaurantName, customerName, address, date, amount;
+            TextView orderId;
+            Button viewDetailsButton;
 
             ViewHolder(View v) {
                 super(v);
                 orderId = v.findViewById(R.id.historyOrderId);
-                status = v.findViewById(R.id.historyStatus);
-                restaurantName = v.findViewById(R.id.historyRestaurantName);
-                customerName = v.findViewById(R.id.historyCustomerName);
-                address = v.findViewById(R.id.historyAddress);
-                date = v.findViewById(R.id.historyDate);
-                amount = v.findViewById(R.id.historyAmount);
+                viewDetailsButton = v.findViewById(R.id.historyViewDetailsButton);
             }
         }
+    }
+
+    private static String firstNonEmpty(String... values) {
+        for (String value : values) {
+            if (value != null && !value.trim().isEmpty() && !"null".equalsIgnoreCase(value) && !"undefined".equalsIgnoreCase(value)) {
+                return value.trim();
+            }
+        }
+        return "";
     }
 }

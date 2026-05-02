@@ -3,6 +3,7 @@ package com.example.fooddash;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.content.SharedPreferences;
 import android.text.TextUtils;
 import android.util.Log;
 import android.view.View;
@@ -21,14 +22,20 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.text.SimpleDateFormat;
 import java.util.HashMap;
+import java.util.Date;
 import java.util.Locale;
 import java.util.Map;
+import java.util.TimeZone;
 
 public class ActiveOrderActivity extends AppCompatActivity {
 
     private static final String TAG = "ActiveOrderActivity";
     private static final long POLL_INTERVAL = 5000L;
+    private static final String PREFS_NAME = "fooddash_prefs";
+    private static final String DRIVER_HISTORY_PREFS_NAME = "fooddash_driver_history_cache";
+    private static final String KEY_DRIVER_DELIVERY_HISTORY = "driver_delivery_history_json";
 
     private TextView activeOrderIdText, activeCustomerName, activeCustomerContact, activeDeliveryAddress;
     private TextView activeRestaurantName, activeOrderItems, activeOrderStatus, activePaymentMethod;
@@ -312,25 +319,34 @@ public class ActiveOrderActivity extends AppCompatActivity {
         if (btnOnTheWay != null) btnOnTheWay.setVisibility(View.GONE);
         if (btnDelivered != null) btnDelivered.setVisibility(View.GONE);
 
-        // Multi-user Sync: Restaurant/Driver transitions
-        // Sequence: pending -> accepted -> preparing -> ready -> picked_up -> arrived_at_restaurant -> out_for_delivery -> delivered
-        
+        boolean isDriverRole = AccessControlManager.ROLE_DRIVER.equals(
+                AccessControlManager.normalizeRole(AccessControlManager.getCurrentRole(this)));
+
+        // Drivers only handle pickup and delivery handoff stages.
+        // Restaurant-side preparation controls stay hidden in the driver flow.
+        if (isDriverRole) {
+            if (Constants.STATUS_READY.equals(status)) {
+                if (btnPickedUp != null) btnPickedUp.setVisibility(View.VISIBLE);
+            } else if (Constants.STATUS_PICKED_UP.equals(status)) {
+                if (btnOnTheWay != null) btnOnTheWay.setVisibility(View.VISIBLE);
+            } else if (Constants.STATUS_OUT_FOR_DELIVERY.equals(status)) {
+                if (btnDelivered != null) btnDelivered.setVisibility(View.VISIBLE);
+            }
+            return;
+        }
+
+        // Restaurant flow keeps the prep/ready controls available.
         if (Constants.STATUS_ACCEPTED.equals(status)) {
-            // Restaurant should mark as preparing
             if (btnPreparing != null) btnPreparing.setVisibility(View.VISIBLE);
-            // Driver can also mark as arrived if they are already there
             if (btnArrived != null) btnArrived.setVisibility(View.VISIBLE);
         } else if (Constants.STATUS_PREPARING.equals(status)) {
-            // Restaurant marks as ready
             if (btnReady != null) btnReady.setVisibility(View.VISIBLE);
             if (btnArrived != null) btnArrived.setVisibility(View.VISIBLE);
         } else if (Constants.STATUS_READY.equals(status)) {
-            // Driver marks as picked up
             if (btnPickedUp != null) btnPickedUp.setVisibility(View.VISIBLE);
         } else if (Constants.STATUS_PICKED_UP.equals(status)) {
             if (btnOnTheWay != null) btnOnTheWay.setVisibility(View.VISIBLE);
         } else if (Constants.STATUS_ARRIVED_RESTAURANT.equals(status)) {
-            // If they arrived but haven't picked up yet
             if (btnPickedUp != null) btnPickedUp.setVisibility(View.VISIBLE);
         } else if (Constants.STATUS_OUT_FOR_DELIVERY.equals(status)) {
             if (btnDelivered != null) btnDelivered.setVisibility(View.VISIBLE);
@@ -394,8 +410,60 @@ public class ActiveOrderActivity extends AppCompatActivity {
     }
 
     private void handleStatusUpdateSuccess(String status) {
+        if (Constants.STATUS_DELIVERED.equals(status)) {
+            cacheDeliveredOrderSnapshot();
+        }
         Toast.makeText(this, "Successfully marked as " + status.replace("_", " "), Toast.LENGTH_SHORT).show();
         fetchFullOrderDetails(); 
+    }
+
+    private void cacheDeliveredOrderSnapshot() {
+        if (activeOrder == null) {
+            return;
+        }
+
+        try {
+            JSONObject deliveredSnapshot = new JSONObject(activeOrder.toString());
+            deliveredSnapshot.put("status", Constants.STATUS_DELIVERED);
+            if (!deliveredSnapshot.has("delivered_at") || deliveredSnapshot.isNull("delivered_at")) {
+                deliveredSnapshot.put("delivered_at", getUtcNowIso());
+            }
+
+            SharedPreferences prefs = getSharedPreferences(DRIVER_HISTORY_PREFS_NAME, MODE_PRIVATE);
+            JSONArray history = new JSONArray(prefs.getString(KEY_DRIVER_DELIVERY_HISTORY, "[]"));
+            int deliveredId = deliveredSnapshot.optInt("id", deliveredSnapshot.optInt("order_id", -1));
+
+            JSONArray merged = new JSONArray();
+            boolean replaced = false;
+            for (int i = 0; i < history.length(); i++) {
+                JSONObject existing = history.optJSONObject(i);
+                if (existing == null) {
+                    continue;
+                }
+
+                int existingId = existing.optInt("id", existing.optInt("order_id", -1));
+                if (existingId > 0 && existingId == deliveredId) {
+                    merged.put(deliveredSnapshot);
+                    replaced = true;
+                } else {
+                    merged.put(existing);
+                }
+            }
+
+            if (!replaced) {
+                merged.put(deliveredSnapshot);
+            }
+
+            prefs.edit().putString(KEY_DRIVER_DELIVERY_HISTORY, merged.toString()).apply();
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to cache delivered order snapshot", e);
+        }
+    }
+
+    private String getUtcNowIso() {
+        SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US);
+        format.setTimeZone(TimeZone.getTimeZone("UTC"));
+        return format.format(new Date());
     }
 
     private int getUserId() { return getSharedPreferences("fooddash_prefs", MODE_PRIVATE).getInt("user_id", -1); }

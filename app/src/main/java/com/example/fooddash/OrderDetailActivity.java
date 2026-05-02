@@ -5,6 +5,7 @@ import android.text.TextUtils;
 import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
@@ -14,8 +15,10 @@ import org.json.JSONObject;
 
 public class OrderDetailActivity extends AppCompatActivity {
 
-    private TextView tvOrderId, tvStatus, tvRestaurant, tvItems, tvTotal, tvPayment;
+    private TextView tvOrderId, tvDate, tvStatus, tvCustomerName, tvCustomerContact, tvCustomerAddress;
+    private TextView tvRestaurant, tvItems, tvTotal, tvPayment;
     private TextView tvDriverName, tvDriverContact, tvDriverVehicle;
+    private View driverSeparator, driverLabel;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -23,7 +26,11 @@ public class OrderDetailActivity extends AppCompatActivity {
         setContentView(R.layout.activity_order_detail);
 
         tvOrderId = findViewById(R.id.tvOrderId);
+        tvDate = findViewById(R.id.tvDate);
         tvStatus = findViewById(R.id.tvStatus);
+        tvCustomerName = findViewById(R.id.tvCustomerName);
+        tvCustomerContact = findViewById(R.id.tvCustomerContact);
+        tvCustomerAddress = findViewById(R.id.tvCustomerAddress);
         tvRestaurant = findViewById(R.id.tvRestaurant);
         tvItems = findViewById(R.id.tvItems);
         tvTotal = findViewById(R.id.tvTotal);
@@ -32,9 +39,19 @@ public class OrderDetailActivity extends AppCompatActivity {
         tvDriverName = findViewById(R.id.tvDriverName);
         tvDriverContact = findViewById(R.id.tvDriverContact);
         tvDriverVehicle = findViewById(R.id.tvDriverVehicle);
+        driverLabel = findViewById(R.id.driverLabel);
+        driverSeparator = findViewById(R.id.tvDriverName).getParent() instanceof View ? (View) findViewById(R.id.tvDriverName).getParent() : null;
 
         Button btnClose = findViewById(R.id.btnCloseDetail);
         btnClose.setOnClickListener(v -> finish());
+
+        boolean showDriverDetails = getIntent().getBooleanExtra("show_driver_details", true);
+        if (!showDriverDetails) {
+            if (driverLabel != null) driverLabel.setVisibility(View.GONE);
+            if (tvDriverName != null) tvDriverName.setVisibility(View.GONE);
+            if (tvDriverContact != null) tvDriverContact.setVisibility(View.GONE);
+            if (tvDriverVehicle != null) tvDriverVehicle.setVisibility(View.GONE);
+        }
 
         String orderJson = getIntent().getStringExtra("order_json");
         if (orderJson == null) {
@@ -56,8 +73,29 @@ public class OrderDetailActivity extends AppCompatActivity {
         int id = order.optInt("id", order.optInt("order_id", -1));
         tvOrderId.setText("Order #" + (id > 0 ? id : "N/A"));
 
+        String date = firstNonEmpty(
+            order.optString("delivered_at"),
+            order.optString("updated_at"),
+            order.optString("completed_at"),
+            order.optString("created_at"),
+            "N/A"
+        );
+        tvDate.setText("Date: " + date);
+
         String status = ActiveOrderActivity.normalizeStatus(order.optString("status", ""));
         tvStatus.setText("Status: " + status.replace("_", " ").toUpperCase());
+
+        tvCustomerName.setText("Customer: " + firstNonEmpty(order.optString("customer_name"), order.optString("full_name"), order.optString("name"), "N/A"));
+        tvCustomerContact.setText("Contact: " + firstNonEmpty(
+            order.optString("customer_phone"),
+            order.optString("phone_number"),
+            order.optString("mobile"),
+            order.optString("customer_contact"),
+            order.optString("contact_number"),
+            order.optString("phone"),
+            "N/A"
+        ));
+        tvCustomerAddress.setText("Address: " + firstNonEmpty(order.optString("delivery_address"), order.optString("address"), "N/A"));
 
         String restaurant = "";
         
