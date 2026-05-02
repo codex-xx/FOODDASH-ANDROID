@@ -46,11 +46,13 @@ import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 public class CustomerDashboard extends AppCompatActivity {
 
@@ -97,6 +99,7 @@ public class CustomerDashboard extends AppCompatActivity {
     private int highlightedProductPosition = -1;
     private String pendingHighlightItemName;
     private boolean isSearchMode = false;
+    private boolean suppressSearchWatcher = false;
     private String lastSearchQuery = "";
     private final Handler searchHandler = new Handler(Looper.getMainLooper());
     private final Handler pollingHandler = new Handler(Looper.getMainLooper());
@@ -413,6 +416,7 @@ public class CustomerDashboard extends AppCompatActivity {
             public void onTextChanged(CharSequence s, int start, int before, int count) {}
             @Override
             public void afterTextChanged(Editable s) {
+                if (suppressSearchWatcher) return;
                 scheduleSearch(s.toString().trim());
             }
         });
@@ -447,8 +451,9 @@ public class CustomerDashboard extends AppCompatActivity {
                 null,
                 response -> {
                     if (!query.equals(lastSearchQuery)) return;
-                    applySearchResults(findArray(response, "restaurants", "data.restaurants"), 
-                                     findArray(response, "menu_items", "data.menu_items"));
+                    applySearchResults(query,
+                            findArray(response, "restaurants", "data.restaurants"),
+                            findArray(response, "menu_items", "data.menu_items"));
                 },
                 error -> {
                     if (!query.equals(lastSearchQuery)) return;
@@ -476,7 +481,7 @@ public class CustomerDashboard extends AppCompatActivity {
         return new JSONArray();
     }
 
-    private void applySearchResults(JSONArray restaurantsArray, JSONArray menuItemsArray) {
+    private void applySearchResults(String query, JSONArray restaurantsArray, JSONArray menuItemsArray) {
         searchRestaurants.clear();
         searchMenuItems.clear();
 
@@ -490,37 +495,91 @@ public class CustomerDashboard extends AppCompatActivity {
             }
         }
 
-        for (int i = 0; i < menuItemsArray.length(); i++) {
-            JSONObject item = menuItemsArray.optJSONObject(i);
-            if (item != null) {
-                int menuId = item.optInt("id", -1);
-                int resId = item.optInt("restaurant_id", -1);
-                String name = item.optString("name", "Item");
-                String resName = item.optString("restaurant_name", "");
-                double price = item.optDouble("price", 0.0);
-                String imageUrl = normalizeImageUrl(item.optString("image_url", ""));
-                
-                // Track availability in search results too
-                boolean available = isItemAvailable(item);
-
-                searchMenuItems.add(new SearchMenuItem(menuId, name, resId, resName, price, imageUrl, available));
-            }
-        }
-
         loadingProgressBar.setVisibility(View.GONE);
         searchRestaurantAdapter.notifyDataSetChanged();
         searchMenuItemAdapter.notifyDataSetChanged();
         updateSearchSectionsVisibility();
     }
 
+    private void fetchLocalMenuMatches(String query) {
+        if (TextUtils.isEmpty(query) || restaurantList.isEmpty()) {
+            return;
+        }
+
+        final String normalizedQuery = query.trim().toLowerCase(Locale.ROOT);
+        final List<SearchMenuItem> localMatches = new ArrayList<>();
+        final Set<String> dedupe = new HashSet<>();
+        final int[] completed = {0};
+        final int total = restaurantList.size();
+
+        for (Restaurant restaurant : restaurantList) {
+            requestMenuArrayForRestaurant(restaurant.id,
+                    response -> {
+                        collectLocalMatches(response, restaurant, normalizedQuery, localMatches, dedupe);
+                        completed[0]++;
+                        if (completed[0] >= total) {
+                            applyLocalSearchMatches(query, localMatches);
+                        }
+                    },
+                    error -> {
+                        completed[0]++;
+                        if (completed[0] >= total) {
+                            applyLocalSearchMatches(query, localMatches);
+                        }
+                    });
+        }
+    }
+
+    private void collectLocalMatches(JSONArray menuItems,
+                                     Restaurant restaurant,
+                                     String normalizedQuery,
+                                     List<SearchMenuItem> sink,
+                                     Set<String> dedupe) {
+        for (int i = 0; i < menuItems.length(); i++) {
+            JSONObject item = menuItems.optJSONObject(i);
+            if (item == null) continue;
+
+            String name = item.optString("name", "");
+            String description = item.optString("description", "");
+            String haystack = (name + " " + description + " " + restaurant.name).toLowerCase(Locale.ROOT);
+            if (!haystack.contains(normalizedQuery)) continue;
+
+            int menuId = item.optInt("id", item.optInt("menu_item_id", -1));
+            if (menuId <= 0) continue;
+
+            String uniqueKey = restaurant.id + ":" + menuId;
+            if (!dedupe.add(uniqueKey)) continue;
+
+            String imageUrl = normalizeImageUrl(item.optString("image_url", item.optString("image", "")));
+            double price = item.optDouble("price", 0.0);
+            boolean available = isItemAvailable(item);
+
+            sink.add(new SearchMenuItem(menuId, name, restaurant.id, restaurant.name, price, imageUrl, available));
+        }
+    }
+
+    private void applyLocalSearchMatches(String query, List<SearchMenuItem> localMatches) {
+        if (!isSearchMode || !query.equals(lastSearchQuery)) {
+            return;
+        }
+        if (localMatches.isEmpty()) {
+            return;
+        }
+
+        searchMenuItems.clear();
+        searchMenuItems.addAll(localMatches);
+        searchMenuItemAdapter.notifyDataSetChanged();
+        updateSearchSectionsVisibility();
+    }
+
     private void updateSearchSectionsVisibility() {
         boolean hasRestaurants = !searchRestaurants.isEmpty();
-        boolean hasMenuItems = !searchMenuItems.isEmpty();
+        boolean hasMenuItems = false;
         searchRestaurantsSectionTitle.setVisibility(hasRestaurants ? View.VISIBLE : View.GONE);
         searchRestaurantsRecyclerView.setVisibility(hasRestaurants ? View.VISIBLE : View.GONE);
         searchMenuSectionTitle.setVisibility(hasMenuItems ? View.VISIBLE : View.GONE);
         searchMenuItemsRecyclerView.setVisibility(hasMenuItems ? View.VISIBLE : View.GONE);
-        searchNoResultsTextView.setVisibility((hasRestaurants || hasMenuItems) ? View.GONE : View.VISIBLE);
+        searchNoResultsTextView.setVisibility(hasRestaurants ? View.GONE : View.VISIBLE);
     }
 
     private void enterSearchMode() {
@@ -531,14 +590,28 @@ public class CustomerDashboard extends AppCompatActivity {
     }
 
     private void exitSearchMode() {
+        exitSearchMode(true);
+    }
+
+    private void exitSearchMode(boolean reloadContent) {
         isSearchMode = false;
         searchResultsScrollView.setVisibility(View.GONE);
         productsRecyclerView.setVisibility(View.VISIBLE);
+        if (!reloadContent) return;
         if (restaurantId > 0) fetchMenu(false);
         else fetchMixedMenuPreview(false);
     }
 
     private void navigateToRestaurantFromSearch(int targetRestaurantId) {
+        if (isSearchMode) {
+            requestQueue.cancelAll(SEARCH_REQUEST_TAG);
+            lastSearchQuery = "";
+            suppressSearchWatcher = true;
+            searchEditText.setText("");
+            suppressSearchWatcher = false;
+            exitSearchMode(false);
+        }
+
         int targetPosition = -1;
         for (int i = 0; i < restaurantList.size(); i++) {
             if (restaurantList.get(i).getId() == targetRestaurantId) {
