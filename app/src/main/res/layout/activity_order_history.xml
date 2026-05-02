@@ -6,6 +6,14 @@
     android:padding="12dp"
     android:background="@color/light_faded_orange">
 
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Your Order History"
+        android:textSize="24sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="16dp"/>
+
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
@@ -13,83 +21,10 @@
         android:fillViewport="true">
 
         <LinearLayout
+            android:id="@+id/historyContainer"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Profile"
-                android:textSize="24sp"
-                android:textStyle="bold"
-                android:layout_marginBottom="10dp"/>
-
-            <TextView
-                android:id="@+id/profileNameTextView"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Name:"
-                android:textSize="16sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/profileEmailTextView"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="Email:" />
-
-            <TextView
-                android:id="@+id/profilePhoneTextView"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="Phone:" />
-
-            <TextView
-                android:id="@+id/profileRoleTextView"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="Role:" />
-
-            <TextView
-                android:id="@+id/profileAddressTextView"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:text="Saved Address:" />
-
-            <TextView
-                android:id="@+id/profilePaymentTextView"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="Preferred Payment:" />
-
-            <Button
-                android:id="@+id/btnEditAddress"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:text="Edit Saved Address" />
-
-            <Button
-                android:id="@+id/btnChangePayment"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="Change Preferred Payment" />
-
-            <Button
-                android:id="@+id/btnLogoutFromProfile"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="Log out" />
-
-        </LinearLayout>
+            android:orientation="vertical" />
 
     </ScrollView>
 

@@ -30,6 +30,8 @@
         <activity android:name=".PaymentSimulationActivity" android:exported="false"/>
         <activity android:name=".OrderTrackingActivity" android:exported="false"/>
         <activity android:name=".DriverDashboard" android:exported="false"/>
+        <activity android:name=".OrderHistoryActivity" android:exported="false"/>
+        <activity android:name=".OrderDetailActivity" android:exported="false"/>
         <activity android:name=".ForgotPasswordActivity" android:exported="false"/>
         <activity android:name=".VerifyCodeActivity" android:exported="false"/>
         <activity android:name=".MfaVerificationActivity" android:exported="false"/>

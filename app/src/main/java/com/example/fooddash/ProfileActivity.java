@@ -53,7 +53,6 @@ public class ProfileActivity extends AppCompatActivity {
 
         Button btnEditAddress = findViewById(R.id.btnEditAddress);
         Button btnChangePayment = findViewById(R.id.btnChangePayment);
-        Button btnViewOrderHistory = findViewById(R.id.btnViewOrderHistory);
         Button btnLogoutFromProfile = findViewById(R.id.btnLogoutFromProfile);
 
         tabHomeButton = findViewById(R.id.tabHomeButton);
@@ -69,10 +68,7 @@ public class ProfileActivity extends AppCompatActivity {
 
         btnEditAddress.setOnClickListener(v -> showEditAddressDialog());
         btnChangePayment.setOnClickListener(v -> showPaymentDialog());
-        btnViewOrderHistory.setOnClickListener(v -> {
-            startActivity(new Intent(this, OrderTrackingActivity.class));
-            finish();
-        });
+        // Order history access moved to Orders screen; removed from profile
         btnLogoutFromProfile.setOnClickListener(v -> performLogout());
     }
 

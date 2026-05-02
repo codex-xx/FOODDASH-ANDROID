@@ -91,7 +91,7 @@ public class OrderTrackingActivity extends AppCompatActivity {
         loadCachedActiveOrder();
 
         btnBackToDashboard.setOnClickListener(v -> {
-            Intent intent = new Intent(this, CustomerDashboard.class);
+            Intent intent = new Intent(this, OrderHistoryActivity.class);
             intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
             startActivity(intent);
             finish();

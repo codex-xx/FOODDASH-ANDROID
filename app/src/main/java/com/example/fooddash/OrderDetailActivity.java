@@ -1,0 +1,200 @@
+package com.example.fooddash;
+
+import android.os.Bundle;
+import android.text.TextUtils;
+import android.view.View;
+import android.widget.Button;
+import android.widget.TextView;
+import android.widget.Toast;
+
+import androidx.appcompat.app.AppCompatActivity;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+public class OrderDetailActivity extends AppCompatActivity {
+
+    private TextView tvOrderId, tvStatus, tvRestaurant, tvItems, tvTotal, tvPayment;
+    private TextView tvDriverName, tvDriverContact, tvDriverVehicle;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_order_detail);
+
+        tvOrderId = findViewById(R.id.tvOrderId);
+        tvStatus = findViewById(R.id.tvStatus);
+        tvRestaurant = findViewById(R.id.tvRestaurant);
+        tvItems = findViewById(R.id.tvItems);
+        tvTotal = findViewById(R.id.tvTotal);
+        tvPayment = findViewById(R.id.tvPayment);
+
+        tvDriverName = findViewById(R.id.tvDriverName);
+        tvDriverContact = findViewById(R.id.tvDriverContact);
+        tvDriverVehicle = findViewById(R.id.tvDriverVehicle);
+
+        Button btnClose = findViewById(R.id.btnCloseDetail);
+        btnClose.setOnClickListener(v -> finish());
+
+        String orderJson = getIntent().getStringExtra("order_json");
+        if (orderJson == null) {
+            Toast.makeText(this, "No order data", Toast.LENGTH_SHORT).show();
+            finish();
+            return;
+        }
+
+        try {
+            JSONObject order = new JSONObject(orderJson);
+            renderOrder(order);
+        } catch (Exception e) {
+            Toast.makeText(this, "Invalid order data", Toast.LENGTH_SHORT).show();
+            finish();
+        }
+    }
+
+    private void renderOrder(JSONObject order) {
+        int id = order.optInt("id", order.optInt("order_id", -1));
+        tvOrderId.setText("Order #" + (id > 0 ? id : "N/A"));
+
+        String status = ActiveOrderActivity.normalizeStatus(order.optString("status", ""));
+        tvStatus.setText("Status: " + status.replace("_", " ").toUpperCase());
+
+        String restaurant = "";
+        
+        // Try to get restaurant as string first
+        String restaurantStr = order.optString("restaurant_name", "");
+        if (!restaurantStr.isEmpty() && !restaurantStr.startsWith("{")) {
+            restaurant = restaurantStr;
+        } else {
+            // Try to parse as JSON object
+            try {
+                JSONObject restaurantObj = order.optJSONObject("restaurant_name");
+                if (restaurantObj == null) restaurantObj = order.optJSONObject("restaurant");
+                if (restaurantObj != null) {
+                    restaurant = firstNonEmpty(restaurantObj.optString("name"), restaurantObj.optString("business_name"), "");
+                }
+            } catch (Exception ignored) {}
+        }
+        
+        // Fallback to other fields
+        if (restaurant.isEmpty()) {
+            restaurant = firstNonEmpty(
+                    order.optString("restaurant"),
+                    order.optString("store_name"),
+                    order.optString("merchant_name"),
+                    order.optString("vendor_name"),
+                    ""
+            );
+        }
+        
+        if (restaurant.isEmpty()) restaurant = "Unknown Restaurant";
+        tvRestaurant.setText("Restaurant: " + restaurant);
+
+        // Items
+        StringBuilder itemsBuilder = new StringBuilder();
+        JSONArray items = order.optJSONArray("items");
+        if (items == null) {
+            String itemsStr = order.optString("items", "");
+            if (!TextUtils.isEmpty(itemsStr) && itemsStr.startsWith("[")) {
+                try { items = new JSONArray(itemsStr); } catch (Exception ignored) {}
+            }
+        }
+        if (items != null) {
+            for (int i = 0; i < items.length(); i++) {
+                JSONObject it = items.optJSONObject(i);
+                if (it != null) {
+                    String name = it.optString("name", it.optString("food_name", it.optString("item_name", "Item")));
+                    int qty = it.optInt("quantity", it.optInt("qty", 1));
+                    itemsBuilder.append(qty).append("x ").append(name).append("\n");
+                }
+            }
+        } else {
+            itemsBuilder.append(order.optString("items_summary", order.optString("order_details", "(no items)")));
+        }
+        tvItems.setText("Items:\n" + itemsBuilder.toString().trim());
+
+        double total = order.optDouble("total_amount", order.optDouble("total", 0.0));
+        tvTotal.setText(String.format("Total: P%.2f", total));
+
+        String payment = firstNonEmpty(
+                order.optString("payment_method"),
+                order.optString("payment_type"),
+                order.optString("payment"),
+                "Cash on Delivery"
+        );
+        if (payment.equalsIgnoreCase("cod")) {
+            tvPayment.setText("Payment: Cash on Delivery");
+        } else if (payment.equalsIgnoreCase("gcash") || payment.equalsIgnoreCase("maya")) {
+            tvPayment.setText("Payment: Online Payment " + payment.toUpperCase());
+        } else if (!payment.isEmpty()) {
+            tvPayment.setText("Payment: " + payment);
+        } else {
+            tvPayment.setText("Payment: Cash on Delivery");
+        }
+
+        // Driver details - check nested driver object first
+        String driverName = "";
+        String driverContact = "";
+        String driverVehicle = "";
+
+        JSONObject driver = order.optJSONObject("driver");
+        if (driver != null) {
+            driverName = firstNonEmpty(driver.optString("name"), driver.optString("fullname"), driver.optString("first_name"), "");
+            driverContact = firstNonEmpty(driver.optString("phone"), driver.optString("contact"), driver.optString("phone_number"), "");
+            
+            // Try to get vehicle from driver's vehicle field (as string)
+            String vehicleStr = driver.optString("vehicle", "");
+            if (!vehicleStr.isEmpty() && !vehicleStr.startsWith("{")) {
+                driverVehicle = vehicleStr;
+            } else {
+                // Try to parse vehicle as JSON object
+                try {
+                    JSONObject vehicleObj = driver.optJSONObject("vehicle");
+                    if (vehicleObj != null) {
+                        driverVehicle = firstNonEmpty(
+                                vehicleObj.optString("name"),
+                                vehicleObj.optString("type"),
+                                vehicleObj.optString("model"),
+                                vehicleObj.optString("plate"),
+                                vehicleObj.optString("plate_number"),
+                                vehicleObj.optString("license_plate"),
+                                ""
+                        );
+                    }
+                } catch (Exception ignored) {}
+            }
+            
+            // Try other vehicle field names if still empty
+            if (driverVehicle.isEmpty()) {
+                driverVehicle = firstNonEmpty(
+                        driver.optString("vehicle_type"),
+                        driver.optString("vehicle_name"),
+                        driver.optString("motorcycle"),
+                        driver.optString("plate_number"),
+                        driver.optString("license_plate"),
+                        ""
+                );
+            }
+        } else {
+            driverName = firstNonEmpty(order.optString("driver_name"), order.optString("driver_fullname"), "");
+            driverContact = firstNonEmpty(order.optString("driver_phone"), order.optString("driver_contact"), order.optString("driver_phone_number"), "");
+            driverVehicle = firstNonEmpty(
+                    order.optString("driver_vehicle"),
+                    order.optString("vehicle"),
+                    order.optString("vehicle_type"),
+                    order.optString("plate_number"),
+                    ""
+            );
+        }
+
+        tvDriverName.setText("Name: " + (driverName.isEmpty() ? "Not Assigned" : driverName));
+        tvDriverContact.setText("Phone: " + (driverContact.isEmpty() ? "N/A" : driverContact));
+        tvDriverVehicle.setText("Vehicle: " + (driverVehicle.isEmpty() ? "Not Assigned" : driverVehicle));
+    }
+
+    private String firstNonEmpty(String... vals) {
+        for (String v : vals) if (v != null && !v.trim().isEmpty() && !v.equals("null")) return v.trim();
+        return "";
+    }
+
+}
