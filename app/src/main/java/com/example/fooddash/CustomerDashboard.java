@@ -908,6 +908,13 @@ public class CustomerDashboard extends AppCompatActivity {
         activeOrderId = order.optInt("id", order.optInt("order_id", -1));
         activeOrderStatus = normalizeStatus(order.optString("status", "pending"));
         activeOrderSnapshot = order;
+        if (activeOrderId > 0) {
+            getSharedPreferences("fooddash_prefs", MODE_PRIVATE)
+                    .edit()
+                    .putInt("last_active_order_id", activeOrderId)
+                    .putString("last_active_order_json", order.toString())
+                    .apply();
+        }
         
         if (btnViewActiveOrders != null) btnViewActiveOrders.setVisibility(View.VISIBLE);
         renderOrderTimeline(activeOrderStatus, order.optString("driver_location", ""));

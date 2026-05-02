@@ -73,6 +73,10 @@ public class OrderTrackingActivity extends AppCompatActivity {
         }
 
         expectedOrderId = getIntent().getIntExtra("order_id", -1);
+        if (expectedOrderId <= 0) {
+            SharedPreferences prefs = getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
+            expectedOrderId = prefs.getInt("last_active_order_id", -1);
+        }
         requestQueue = Volley.newRequestQueue(this);
 
         ordersContainer = findViewById(R.id.ordersContainer);
@@ -83,6 +87,8 @@ public class OrderTrackingActivity extends AppCompatActivity {
         tabNotificationsButton = findViewById(R.id.tabNotificationsButton);
         tabProfileButton = findViewById(R.id.tabProfileButton);
         tabCartBadgeTextView = findViewById(R.id.tabCartBadgeTextView);
+
+        loadCachedActiveOrder();
 
         btnBackToDashboard.setOnClickListener(v -> {
             Intent intent = new Intent(this, CustomerDashboard.class);
@@ -130,8 +136,34 @@ public class OrderTrackingActivity extends AppCompatActivity {
         }
 
         // Try both modern and legacy endpoints to ensure we find the order
+        fetchOrdersFromEndpoint(Constants.URL_ORDERS + "?user_id=" + userId, false);
         fetchOrdersFromEndpoint(Constants.URL_ORDERS + "/" + userId, false);
         fetchOrdersFromEndpoint(Constants.URL_GET_ORDERS_LEGACY + "?user_id=" + userId, true);
+        if (expectedOrderId > 0) {
+            fetchOrdersFromEndpoint(Constants.URL_ORDERS + "/" + expectedOrderId, false);
+            fetchOrdersFromEndpoint(Constants.URL_GET_ORDERS_LEGACY + "?order_id=" + expectedOrderId, true);
+        }
+    }
+
+    private void loadCachedActiveOrder() {
+        SharedPreferences prefs = getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
+        String cachedOrder = prefs.getString("last_active_order_json", "");
+        if (TextUtils.isEmpty(cachedOrder)) {
+            if (expectedOrderId > 0) {
+                showFallbackActiveOrder(expectedOrderId, Constants.STATUS_PENDING);
+            }
+            return;
+        }
+
+        try {
+            JSONObject order = new JSONObject(cachedOrder);
+            renderOrders(Collections.singletonList(order));
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to load cached active order", e);
+            if (expectedOrderId > 0) {
+                showFallbackActiveOrder(expectedOrderId, Constants.STATUS_PENDING);
+            }
+        }
     }
 
     private void setupBottomNavigation() {
@@ -246,10 +278,15 @@ public class OrderTrackingActivity extends AppCompatActivity {
                     List<JSONObject> orders = extractOrders(response);
                     if (!orders.isEmpty()) {
                         renderOrders(orders);
+                    } else if (expectedOrderId > 0 && ordersContainer.getChildCount() == 0) {
+                        showFallbackActiveOrder(expectedOrderId, Constants.STATUS_PENDING);
                     }
                 },
                 error -> {
                     if (isLegacy) Log.e(TAG, "Failed to poll legacy orders: " + error.toString());
+                    if (expectedOrderId > 0 && ordersContainer.getChildCount() == 0) {
+                        showFallbackActiveOrder(expectedOrderId, Constants.STATUS_PENDING);
+                    }
                 }
         ) {
             @Override
@@ -270,6 +307,22 @@ public class OrderTrackingActivity extends AppCompatActivity {
             JSONObject data = response.optJSONObject("data");
             if (data != null) orders = data.optJSONArray("orders");
         }
+        if (orders == null) {
+            JSONObject data = response.optJSONObject("data");
+            if (data != null) {
+                JSONObject nestedOrder = data.optJSONObject("order");
+                if (nestedOrder != null) {
+                    list.add(nestedOrder);
+                }
+            }
+        }
+
+        if (orders == null) {
+            JSONObject nestedOrder = response.optJSONObject("order");
+            if (nestedOrder != null) {
+                list.add(nestedOrder);
+            }
+        }
 
         if (orders != null) {
             for (int i = 0; i < orders.length(); i++) {
@@ -278,7 +331,7 @@ public class OrderTrackingActivity extends AppCompatActivity {
             }
         } else {
             // Check if it's a single order object
-            if (response.has("id") || response.has("order_id") || response.has("items")) {
+            if (response.has("id") || response.has("order_id") || response.has("items") || response.has("status")) {
                 list.add(response);
             } else if (response.has("data")) {
                 JSONObject data = response.optJSONObject("data");
@@ -290,6 +343,21 @@ public class OrderTrackingActivity extends AppCompatActivity {
         return list;
     }
 
+    private void showFallbackActiveOrder(int orderId, String status) {
+        JSONObject fallback = new JSONObject();
+        try {
+            fallback.put("id", orderId);
+            fallback.put("order_id", orderId);
+            fallback.put("status", status);
+            fallback.put("restaurant_name", "Your Restaurant Order");
+            fallback.put("total_amount", 0.0);
+        } catch (Exception ignored) {
+        }
+
+        ordersContainer.removeAllViews();
+        ordersContainer.addView(createOrderCard(fallback, orderId, ActiveOrderActivity.normalizeStatus(status)));
+    }
+
     private void renderOrders(List<JSONObject> orders) {
         // Simple deduplication by ID
         Map<Integer, JSONObject> uniqueOrders = new HashMap<>();
@@ -299,16 +367,19 @@ public class OrderTrackingActivity extends AppCompatActivity {
         }
 
         if (uniqueOrders.isEmpty()) {
-            if (ordersContainer.getChildCount() == 0) {
+            if (expectedOrderId > 0) {
+                showFallbackActiveOrder(expectedOrderId, getCachedActiveOrderStatus());
+            } else if (ordersContainer.getChildCount() == 0) {
                 showEmptyMessage("No active orders found.");
             }
             return;
         }
 
-        ordersContainer.removeAllViews();
         List<JSONObject> sortedList = new ArrayList<>(uniqueOrders.values());
         // Sort by ID descending (newest first)
         Collections.sort(sortedList, (a, b) -> Integer.compare(b.optInt("id"), a.optInt("id")));
+
+        List<JSONObject> visibleOrders = new ArrayList<>();
 
         for (JSONObject order : sortedList) {
             String status = ActiveOrderActivity.normalizeStatus(order.optString("status", ""));
@@ -321,7 +392,38 @@ public class OrderTrackingActivity extends AppCompatActivity {
                 }
             }
 
+            visibleOrders.add(order);
+        }
+
+        if (visibleOrders.isEmpty()) {
+            if (expectedOrderId > 0) {
+                showFallbackActiveOrder(expectedOrderId, getCachedActiveOrderStatus());
+            } else if (ordersContainer.getChildCount() == 0) {
+                showEmptyMessage("No active orders found.");
+            }
+            return;
+        }
+
+        ordersContainer.removeAllViews();
+        for (JSONObject order : visibleOrders) {
+            String status = ActiveOrderActivity.normalizeStatus(order.optString("status", ""));
+            int orderId = order.optInt("id", order.optInt("order_id", -1));
             ordersContainer.addView(createOrderCard(order, orderId, status));
+        }
+    }
+
+    private String getCachedActiveOrderStatus() {
+        SharedPreferences prefs = getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
+        String cachedOrder = prefs.getString("last_active_order_json", "");
+        if (TextUtils.isEmpty(cachedOrder)) {
+            return Constants.STATUS_PENDING;
+        }
+
+        try {
+            JSONObject order = new JSONObject(cachedOrder);
+            return ActiveOrderActivity.normalizeStatus(order.optString("status", Constants.STATUS_PENDING));
+        } catch (Exception e) {
+            return Constants.STATUS_PENDING;
         }
     }
 

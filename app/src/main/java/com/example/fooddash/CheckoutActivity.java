@@ -427,6 +427,10 @@ public class CheckoutActivity extends AppCompatActivity {
     private void openPostCheckoutOrderScreen() {
         int primaryOrderId = placedOrderIds.isEmpty() ? -1 : placedOrderIds.get(0);
         if (primaryOrderId > 0) {
+            getSharedPreferences("fooddash_prefs", MODE_PRIVATE)
+                    .edit()
+                    .putInt("last_active_order_id", primaryOrderId)
+                    .apply();
             try {
                 JSONObject activeOrderPayload = new JSONObject();
                 activeOrderPayload.put("id", primaryOrderId);
@@ -438,6 +442,11 @@ public class CheckoutActivity extends AppCompatActivity {
                     activeOrderPayload.put("restaurant_name", orderGroups.get(0).restaurantName);
                     activeOrderPayload.put("items", orderGroups.get(0).items);
                 }
+
+                getSharedPreferences("fooddash_prefs", MODE_PRIVATE)
+                        .edit()
+                        .putString("last_active_order_json", activeOrderPayload.toString())
+                        .apply();
 
                 Intent activeIntent = new Intent(this, ActiveOrderActivity.class);
                 activeIntent.putExtra("order_json", activeOrderPayload.toString());
