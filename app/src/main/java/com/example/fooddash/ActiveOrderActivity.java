@@ -4,10 +4,12 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.content.SharedPreferences;
+// removed unused Intent/Uri imports (no driver UI in this activity)
 import android.text.TextUtils;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
+// image view for driver removed from this activity
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -17,6 +19,7 @@ import com.android.volley.Request;
 import com.android.volley.RequestQueue;
 import com.android.volley.toolbox.JsonObjectRequest;
 import com.android.volley.toolbox.Volley;
+// Glide not required here after moving driver UI to OrderTrackingActivity
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -39,6 +42,7 @@ public class ActiveOrderActivity extends AppCompatActivity {
 
     private TextView activeOrderIdText, activeCustomerName, activeCustomerContact, activeDeliveryAddress;
     private TextView activeRestaurantName, activeOrderItems, activeOrderStatus, activePaymentMethod;
+    // driver UI moved to customer order listing (OrderTrackingActivity)
     private Button btnPreparing, btnReady, btnArrived, btnPickedUp, btnOnTheWay, btnDelivered, btnBackToDashboard;
 
     private RequestQueue requestQueue;
@@ -67,6 +71,7 @@ public class ActiveOrderActivity extends AppCompatActivity {
         activeOrderItems = findViewById(R.id.activeOrderItems);
         activeOrderStatus = findViewById(R.id.activeOrderStatus);
         activePaymentMethod = findViewById(R.id.activePaymentMethod);
+        // driver UI bindings removed
 
         btnPreparing = findViewById(R.id.btnPreparing);
         btnReady = findViewById(R.id.btnReady);
@@ -276,6 +281,8 @@ public class ActiveOrderActivity extends AppCompatActivity {
             Toast.makeText(this, "Order " + status.toUpperCase(), Toast.LENGTH_SHORT).show();
             finish();
         }
+
+        // Driver details are presented in the customer's order listing (OrderTrackingActivity).
     }
 
     private String firstNonEmpty(String... values) {

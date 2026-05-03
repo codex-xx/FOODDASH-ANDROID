@@ -149,7 +149,17 @@
                 android:id="@+id/productsRecyclerView"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
+                android:visibility="visible"
                 android:padding="4dp" />
+
+            <Button
+                android:id="@+id/btnViewProducts"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="start"
+                android:layout_margin="12dp"
+                android:text="View Products"
+                android:visibility="gone" />
 
             <androidx.core.widget.NestedScrollView
                 android:id="@+id/searchResultsScrollView"

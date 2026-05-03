@@ -67,6 +67,8 @@
                 android:text="Address: --" />
         </LinearLayout>
 
+        <!-- driver UI removed from ActiveOrderActivity; driver details are shown in customer-order listing (OrderTrackingActivity) -->
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

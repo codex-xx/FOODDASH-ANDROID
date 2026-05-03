@@ -68,6 +68,7 @@ public class CustomerDashboard extends AppCompatActivity {
     private NestedScrollView searchResultsScrollView;
     private ProgressBar loadingProgressBar;
     private TextView selectedRestaurantTextView;
+    private Button btnViewProducts;
     private TextView emptyMessageTextView;
     private TextView searchRestaurantsSectionTitle;
     private TextView searchMenuSectionTitle;
@@ -111,7 +112,10 @@ public class CustomerDashboard extends AppCompatActivity {
     private int activeOrderId = -1;
     private String activeOrderStatus = "";
     private JSONObject activeOrderSnapshot;
-    
+    // When true, user has requested to view a full restaurant menu (via click).
+    // Default false so on initial login we show mixed previews instead of a restaurant's full menu.
+    private boolean userRequestedFullMenu = false;
+
     private final List<String> canonicalStatusFlow = Arrays.asList(
             Constants.STATUS_PENDING,
             Constants.STATUS_ACCEPTED,
@@ -128,12 +132,14 @@ public class CustomerDashboard extends AppCompatActivity {
     private static final String MENU_BY_RESTAURANT_ENDPOINT = Constants.URL_GET_MENU_BY_RESTAURANT;
     private static final String LEGACY_MENU_ENDPOINT = Constants.URL_GET_MENU_LEGACY;
     private static final String SEARCH_ENDPOINT = Constants.BASE_URL + "search.php";
+    private static final int PREVIEW_RESTAURANT_LIMIT = 3;
+    private static final int PREVIEW_ITEMS_PER_RESTAURANT = 2;
 
     private final Runnable menuPollingRunnable = new Runnable() {
         @Override
         public void run() {
             if (!isSearchMode) {
-                if (restaurantId > 0) {
+                if (restaurantId > 0 && userRequestedFullMenu) {
                     fetchMenu(false);
                 } else {
                     fetchMixedMenuPreview(false);
@@ -164,6 +170,7 @@ public class CustomerDashboard extends AppCompatActivity {
 
         restaurantsRecyclerView = findViewById(R.id.restaurantsRecyclerView);
         productsRecyclerView = findViewById(R.id.productsRecyclerView);
+        btnViewProducts = findViewById(R.id.btnViewProducts);
         searchRestaurantsRecyclerView = findViewById(R.id.searchRestaurantsRecyclerView);
         searchMenuItemsRecyclerView = findViewById(R.id.searchMenuItemsRecyclerView);
         swipeRefreshLayout = findViewById(R.id.swipeRefreshLayout);
@@ -229,6 +236,8 @@ public class CustomerDashboard extends AppCompatActivity {
         });
         showEmpty("Loading restaurants...");
         selectedRestaurantTextView.setText("Mixed picks from partner restaurants");
+        productsRecyclerView.setVisibility(View.VISIBLE);
+        if (btnViewProducts != null) btnViewProducts.setVisibility(View.GONE);
         updateOrderControlsState();
 
         if (btnPlaceOrder != null) {
@@ -339,7 +348,8 @@ public class CustomerDashboard extends AppCompatActivity {
         loadGlobalCart();
         updateCartButtonState();
         updateCartTabBadge();
-        if (restaurantId > 0) {
+        // Only fetch full menu on resume if the user explicitly requested it (click/opened a restaurant).
+        if (restaurantId > 0 && userRequestedFullMenu) {
             fetchMenu(false);
         } else {
             fetchMixedMenuPreview(false);
@@ -598,7 +608,7 @@ public class CustomerDashboard extends AppCompatActivity {
         searchResultsScrollView.setVisibility(View.GONE);
         productsRecyclerView.setVisibility(View.VISIBLE);
         if (!reloadContent) return;
-        if (restaurantId > 0) fetchMenu(false);
+        if (restaurantId > 0 && userRequestedFullMenu) fetchMenu(false);
         else fetchMixedMenuPreview(false);
     }
 
@@ -619,17 +629,13 @@ public class CustomerDashboard extends AppCompatActivity {
                 break;
             }
         }
-        if (targetPosition >= 0) {
-            selectRestaurant(targetPosition, true);
-        } else {
-            restaurantId = targetRestaurantId;
-            fetchMenu(true);
-        }
+        if (targetPosition >= 0) openRestaurantProducts(restaurantList.get(targetPosition).getId(), restaurantList.get(targetPosition).getName());
+        else openRestaurantProducts(targetRestaurantId, "Restaurant");
     }
 
     private void navigateToMenuItemFromSearch(SearchMenuItem item) {
         pendingHighlightItemName = item.name;
-        navigateToRestaurantFromSearch(item.restaurantId);
+        openRestaurantProducts(item.restaurantId, item.restaurantName);
     }
 
     private void highlightPendingMenuItemIfNeeded() {
@@ -700,7 +706,10 @@ public class CustomerDashboard extends AppCompatActivity {
             }
         }
         if (restaurantId <= 0) fetchMixedMenuPreview(true);
-        else fetchMenu(true);
+        else {
+            if (userRequestedFullMenu) fetchMenu(true);
+            else fetchMixedMenuPreview(true);
+        }
     }
 
     private void selectRestaurant(int position, boolean fetchMenuNow) {
@@ -708,7 +717,21 @@ public class CustomerDashboard extends AppCompatActivity {
         restaurantId = restaurantList.get(position).getId();
         selectedRestaurantTextView.setText("Menu: " + restaurantList.get(position).getName());
         restaurantAdapter.notifyDataSetChanged();
-        if (fetchMenuNow) fetchMenu(true);
+        if (fetchMenuNow) {
+            userRequestedFullMenu = true;
+            fetchMenu(true);
+        }
+    }
+
+    private void openRestaurantProducts(int resId, String resName) {
+        try {
+            Intent intent = new Intent(this, RestaurantMenuActivity.class);
+            intent.putExtra("restaurant_id", resId);
+            intent.putExtra("restaurant_name", resName != null ? resName : "");
+            startActivity(intent);
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to open restaurant products", e);
+        }
     }
 
     private void clearRestaurantSelection(boolean fetchMenuNow) {
@@ -828,34 +851,66 @@ public class CustomerDashboard extends AppCompatActivity {
 
     private void fetchMixedMenuPreview(boolean showBlockingLoader) {
         if (showBlockingLoader) loadingProgressBar.setVisibility(View.VISIBLE);
-        
-        if (!restaurantList.isEmpty()) {
-            fetchMenuForPreview(restaurantList.get(0).id, restaurantList.get(0).name);
-        } else {
+        productList.clear();
+
+        if (restaurantList.isEmpty()) {
             loadingProgressBar.setVisibility(View.GONE);
+            swipeRefreshLayout.setRefreshing(false);
+            showEmpty("Loading restaurants...");
+            return;
+        }
+
+        int limit = Math.min(PREVIEW_RESTAURANT_LIMIT, restaurantList.size());
+        if (limit <= 0) {
+            loadingProgressBar.setVisibility(View.GONE);
+            swipeRefreshLayout.setRefreshing(false);
+            showEmpty("No featured items available");
+            return;
+        }
+
+        final int[] completed = {0};
+        final Set<String> dedupe = new HashSet<>();
+
+        for (int i = 0; i < limit; i++) {
+            Restaurant restaurant = restaurantList.get(i);
+            fetchMenuForPreview(restaurant, PREVIEW_ITEMS_PER_RESTAURANT, dedupe, completed, limit);
         }
     }
 
-    private void fetchMenuForPreview(int resId, String resName) {
-        requestMenuArrayForRestaurant(resId, response -> {
-            productList.clear();
-            for (int i = 0; i < Math.min(response.length(), 6); i++) {
+    private void fetchMenuForPreview(Restaurant restaurant,
+                                     int maxItems,
+                                     Set<String> dedupe,
+                                     int[] completed,
+                                     int totalRestaurants) {
+        requestMenuArrayForRestaurant(restaurant.id, response -> {
+            int added = 0;
+            for (int i = 0; i < response.length() && added < maxItems; i++) {
                 JSONObject obj = response.optJSONObject(i);
-                if (obj != null) {
-                    Product p = parseProductFromJson(obj, resId, resName, true);
-                    CartEntry ce = globalCart.get("res:" + resId + ":id:" + p.id);
-                    if (ce != null) p.quantity = ce.quantity;
-                    productList.add(p);
-                }
+                if (obj == null) continue;
+
+                int menuId = obj.optInt("id", obj.optInt("menu_item_id", -1));
+                if (menuId <= 0) continue;
+
+                String key = restaurant.id + ":" + menuId;
+                if (!dedupe.add(key)) continue;
+
+                Product p = parseProductFromJson(obj, restaurant.id, restaurant.name, false);
+                productList.add(p);
+                added++;
             }
-            loadingProgressBar.setVisibility(View.GONE);
-            adapter.notifyDataSetChanged();
-            if (productList.isEmpty()) showEmpty("No featured items available");
-            else hideEmpty();
-        }, error -> {
-            loadingProgressBar.setVisibility(View.GONE);
-            showEmpty("Failed to load featured items");
-        });
+            completePreviewLoad(completed, totalRestaurants);
+        }, error -> completePreviewLoad(completed, totalRestaurants));
+    }
+
+    private void completePreviewLoad(int[] completed, int totalRestaurants) {
+        completed[0]++;
+        if (completed[0] < totalRestaurants) return;
+
+        loadingProgressBar.setVisibility(View.GONE);
+        swipeRefreshLayout.setRefreshing(false);
+        adapter.notifyDataSetChanged();
+        if (productList.isEmpty()) showEmpty("No featured items available");
+        else hideEmpty();
     }
 
     private void fetchMenu(boolean showBlockingLoader) {
@@ -1144,28 +1199,6 @@ public class CustomerDashboard extends AppCompatActivity {
         String getName() { return name; }
     }
 
-    private static class Product {
-        int id;
-        String name;
-        String description;
-        double price;
-        String imageUrl;
-        boolean isAvailable;
-        int quantity = 0;
-        int restaurantId;
-        String restaurantName;
-        Product(int id, String name, String description, double price, String imageUrl, boolean available, int resId, String resName) {
-            this.id = id; this.name = name; this.description = description; this.price = price; this.imageUrl = imageUrl; this.isAvailable = available;
-            this.restaurantId = resId; this.restaurantName = resName;
-        }
-        int getId() { return id; }
-        String getName() { return name; }
-        String getDescription() { return description; }
-        double getPrice() { return price; }
-        String getImageUrl() { return imageUrl; }
-        boolean isAvailable() { return isAvailable; }
-    }
-
     private static class CartEntry {
         int restaurantId, id, quantity;
         String restaurantName, name;
@@ -1186,7 +1219,7 @@ public class CustomerDashboard extends AppCompatActivity {
             h.name.setText(r.name);
             boolean sel = p == selectedRestaurantPosition;
             h.itemView.setAlpha(sel ? 1.0f : 0.7f);
-            h.itemView.setOnClickListener(v -> selectRestaurant(p, true));
+            h.itemView.setOnClickListener(v -> openRestaurantProducts(r.id, r.name));
         }
         @Override public int getItemCount() { return list.size(); }
         class ViewHolder extends RecyclerView.ViewHolder {
@@ -1269,52 +1302,27 @@ public class CustomerDashboard extends AppCompatActivity {
         }
         @Override public void onBindViewHolder(@NonNull ViewHolder h, int p) {
             Product pr = list.get(p);
-            h.name.setText(pr.name); h.desc.setText(pr.description); h.price.setText("₱" + String.format("%.2f", pr.price)); h.qty.setText(String.valueOf(pr.quantity));
+            h.name.setText(pr.name);
+            h.desc.setText(pr.description);
+            h.restaurant.setText(pr.restaurantName);
+            h.price.setText(String.format(Locale.US, "₱%.2f", pr.price));
             Glide.with(h.itemView).load(pr.imageUrl).into(h.img);
-            
-            if (pr.isAvailable) {
-                h.itemView.setAlpha(1.0f);
-                h.unavailableText.setVisibility(View.GONE);
-                h.controlsLayout.setVisibility(View.VISIBLE);
-                
-                h.plus.setOnClickListener(v -> { 
-                    pr.quantity++; 
-                    h.qty.setText(String.valueOf(pr.quantity)); 
-                    syncProductWithGlobalCart(pr); 
-                });
-                h.minus.setOnClickListener(v -> { 
-                    if (pr.quantity > 0) { 
-                        pr.quantity--; 
-                        h.qty.setText(String.valueOf(pr.quantity)); 
-                        syncProductWithGlobalCart(pr); 
-                    } 
-                });
-            } else {
-                h.itemView.setAlpha(0.6f);
-                h.unavailableText.setVisibility(View.VISIBLE);
-                h.controlsLayout.setVisibility(View.GONE);
-                h.plus.setOnClickListener(null);
-                h.minus.setOnClickListener(null);
-                
-                if (pr.quantity > 0) {
-                    pr.quantity = 0;
-                    h.qty.setText("0");
-                    syncProductWithGlobalCart(pr);
-                }
-            }
+            h.itemView.setAlpha(pr.isAvailable ? 1.0f : 0.65f);
+            h.restaurant.setVisibility(TextUtils.isEmpty(pr.restaurantName) ? View.GONE : View.VISIBLE);
+            h.controlsLayout.setVisibility(View.GONE);
+            h.unavailableText.setVisibility(pr.isAvailable ? View.GONE : View.VISIBLE);
+            h.itemView.setOnClickListener(v -> openRestaurantProducts(pr.restaurantId, pr.restaurantName));
         }
         @Override public int getItemCount() { return list.size(); }
         class ViewHolder extends RecyclerView.ViewHolder {
-            ImageView img; TextView name, desc, price, qty, unavailableText; ImageButton plus, minus; View controlsLayout;
-            ViewHolder(View v) { 
+            ImageView img; TextView name, desc, restaurant, price, unavailableText; View controlsLayout;
+            ViewHolder(View v) {
                 super(v); 
                 img = v.findViewById(R.id.productImageView); 
                 name = v.findViewById(R.id.productNameTextView); 
                 desc = v.findViewById(R.id.productDescriptionTextView); 
-                price = v.findViewById(R.id.productPriceTextView); 
-                qty = v.findViewById(R.id.quantityTextView); 
-                plus = v.findViewById(R.id.plusButton); 
-                minus = v.findViewById(R.id.minusButton);
+                restaurant = v.findViewById(R.id.productRestaurantNameTextView);
+                price = v.findViewById(R.id.productPriceTextView);
                 unavailableText = v.findViewById(R.id.unavailableTextView);
                 controlsLayout = v.findViewById(R.id.quantityControlsLayout);
             }

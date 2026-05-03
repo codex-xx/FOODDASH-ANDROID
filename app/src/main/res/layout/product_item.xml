@@ -41,6 +41,17 @@
             android:textSize="11sp" />
 
         <TextView
+            android:id="@+id/productRestaurantNameTextView"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            android:textColor="@color/secondary_dark_gray" />
+
+        <TextView
             android:id="@+id/productPriceTextView"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"

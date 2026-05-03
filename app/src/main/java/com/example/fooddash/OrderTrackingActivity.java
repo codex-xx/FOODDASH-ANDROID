@@ -2,6 +2,8 @@ package com.example.fooddash;
 
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.net.Uri;
+import android.widget.ImageView;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -23,6 +25,7 @@ import com.android.volley.toolbox.Volley;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
+import com.bumptech.glide.Glide;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -457,6 +460,64 @@ public class OrderTrackingActivity extends AppCompatActivity {
                 order.optString("driver_location", ""),
                 order.optString("current_location", "")
         );
+        // Render driver details if available
+        JSONObject driverObj = order.optJSONObject("driver");
+        String driverName = "";
+        String driverPhone = "";
+        String driverAvatar = "";
+        if (driverObj != null) {
+            driverName = firstNonEmpty(driverObj.optString("name"), driverObj.optString("driver_name"), driverObj.optString("full_name"));
+            driverPhone = firstNonEmpty(driverObj.optString("phone"), driverObj.optString("contact"), driverObj.optString("mobile"));
+            driverAvatar = firstNonEmpty(driverObj.optString("avatar"), driverObj.optString("image"), driverObj.optString("photo"));
+        } else {
+            driverName = firstNonEmpty(order.optString("driver_name"), order.optString("rider_name"));
+            driverPhone = firstNonEmpty(order.optString("driver_phone"), order.optString("driver_contact"), order.optString("phone"));
+            driverAvatar = firstNonEmpty(order.optString("driver_avatar"), order.optString("driver_image"));
+        }
+
+        if (!driverName.isEmpty() || !driverPhone.isEmpty() || !driverAvatar.isEmpty()) {
+            LinearLayout driverBox = new LinearLayout(this);
+            driverBox.setOrientation(LinearLayout.HORIZONTAL);
+            driverBox.setPadding(0, 12, 0, 12);
+
+            ImageView img = new ImageView(this);
+            LinearLayout.LayoutParams imgLp = new LinearLayout.LayoutParams(120, 120);
+            imgLp.setMargins(0, 0, 16, 0);
+            img.setLayoutParams(imgLp);
+            if (!driverAvatar.isEmpty()) {
+                Glide.with(this).load(driverAvatar).placeholder(R.drawable.ic_launcher_foreground).into(img);
+            } else {
+                img.setImageResource(R.drawable.ic_launcher_foreground);
+            }
+            driverBox.addView(img);
+
+            LinearLayout info = new LinearLayout(this);
+            info.setOrientation(LinearLayout.VERTICAL);
+            info.setLayoutParams(new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+            TextView dn = new TextView(this);
+            dn.setText(!driverName.isEmpty() ? driverName : "Driver");
+            dn.setTypeface(null, android.graphics.Typeface.BOLD);
+            info.addView(dn);
+
+            TextView dp = new TextView(this);
+            dp.setText(!driverPhone.isEmpty() ? "Phone: " + driverPhone : "Phone: N/A");
+            dp.setTextColor(getResources().getColor(R.color.primary_blue));
+            if (!driverPhone.isEmpty()) {
+                final String driverPhoneFinal = driverPhone;
+                dp.setOnClickListener(v -> {
+                    try {
+                        Intent i = new Intent(Intent.ACTION_DIAL);
+                        i.setData(Uri.parse("tel:" + driverPhoneFinal));
+                        startActivity(i);
+                    } catch (Exception ignored) {}
+                });
+            }
+            info.addView(dp);
+
+            driverBox.addView(info);
+            box.addView(driverBox);
+        }
         if (!location.isEmpty() && !"null".equalsIgnoreCase(location)) {
             TextView locText = new TextView(this);
             locText.setText("Driver location: " + location);

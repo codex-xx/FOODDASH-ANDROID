@@ -24,6 +24,8 @@
         </activity>
 
         <activity android:name=".RegisterActivity" android:exported="false"/>
+        <activity android:name=".RestaurantMenuActivity" android:exported="false"/>
+        <activity android:name=".RestaurantProductsActivity" android:exported="false"/>
         <activity android:name=".CustomerDashboard" android:exported="false"/>
         <activity android:name=".CartActivity" android:exported="false"/>
         <activity android:name=".CheckoutActivity" android:exported="false"/>
