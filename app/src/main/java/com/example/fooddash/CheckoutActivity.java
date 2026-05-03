@@ -258,28 +258,10 @@ public class CheckoutActivity extends AppCompatActivity {
             return;
         }
 
-        JsonObjectRequest request = new JsonObjectRequest(Request.Method.POST, Constants.URL_ORDERS, payload,
-                response -> {
-                    successfulGroupCount++;
-                    int id = response.optInt("order_id", response.optInt("id", -1));
-                    addPlacedOrderId(id);
-                    removeItemsFromGlobalCart(group.items);
-                    processGroup(index + 1, userId, token, address, type, fee, paymentMethod);
-                },
-                error -> {
-                    Log.e(TAG, "Failed order for " + group.restaurantName, error);
-                    // Try legacy as fallback
-                    placeLegacyOrder(index, userId, token, address, type, fee, paymentMethod, payload);
-                }
-        ) {
-            @Override
-            public Map<String, String> getHeaders() {
-                Map<String, String> h = new HashMap<>();
-                h.put("Authorization", "Bearer " + token);
-                return h;
-            }
-        };
-        requestQueue.add(request);
+        // Temporary workaround: send to legacy endpoint first to avoid schema mismatch on older servers
+        // If you have updated the server schema to include `payment_method`, you can revert this to use the
+        // modern `Constants.URL_ORDERS` JSON API instead.
+        placeLegacyOrder(index, userId, token, address, type, fee, paymentMethod, payload);
     }
 
     private void placeLegacyOrder(int index, int userId, String token, String address, String type, double fee, String paymentMethod, JSONObject payload) {
@@ -294,6 +276,21 @@ public class CheckoutActivity extends AppCompatActivity {
                 },
                 error -> {
                     Log.e(TAG, "Legacy failed too", error);
+                    if (error.networkResponse != null && error.networkResponse.data != null) {
+                        try {
+                            String body = new String(error.networkResponse.data, StandardCharsets.UTF_8);
+                            Log.e(TAG, "Legacy server response: " + body);
+                            try {
+                                org.json.JSONObject j = new org.json.JSONObject(body);
+                                String serverMsg = j.optString("message", null);
+                                if (serverMsg != null && !serverMsg.isEmpty()) {
+                                    Toast.makeText(this, "Order failed: " + serverMsg, Toast.LENGTH_LONG).show();
+                                }
+                            } catch (Exception ignored) {}
+                        } catch (Exception e) {
+                            Log.e(TAG, "Failed to read legacy error body", e);
+                        }
+                    }
                     processGroup(index + 1, userId, token, address, type, fee, paymentMethod);
                 }
         ) {
