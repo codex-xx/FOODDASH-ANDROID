@@ -348,12 +348,6 @@ public class CustomerDashboard extends AppCompatActivity {
         loadGlobalCart();
         updateCartButtonState();
         updateCartTabBadge();
-        // Only fetch full menu on resume if the user explicitly requested it (click/opened a restaurant).
-        if (restaurantId > 0 && userRequestedFullMenu) {
-            fetchMenu(false);
-        } else {
-            fetchMixedMenuPreview(false);
-        }
         fetchRestaurants(true);
         startMenuPolling();
         startOrderPolling();

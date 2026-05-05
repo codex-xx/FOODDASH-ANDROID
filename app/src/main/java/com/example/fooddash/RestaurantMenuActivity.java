@@ -2,10 +2,13 @@ package com.example.fooddash;
 
 import android.content.SharedPreferences;
 import android.os.Bundle;
+import android.text.Editable;
 import android.text.TextUtils;
+import android.text.TextWatcher;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.EditText;
 import android.widget.Button;
 import android.widget.ImageButton;
 import android.widget.ImageView;
@@ -15,6 +18,7 @@ import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -36,16 +40,28 @@ import java.util.Map;
 
 public class RestaurantMenuActivity extends AppCompatActivity {
 
+    private static final String ALL_RESTAURANTS_ENDPOINT = Constants.URL_GET_ALL_RESTAURANTS;
+
+    private RecyclerView restaurantsRecyclerView;
     private RecyclerView productsRecyclerView;
     private ProgressBar loadingProgressBar;
+    private TextView appTitleTextView;
     private TextView titleTextView;
+    private TextView partnerRestaurantsTitleTextView;
+    private TextView emptyTextView;
+    private EditText searchEditText;
     private Button btnBackToDashboard;
     private RequestQueue requestQueue;
+    private final List<Restaurant> restaurantList = new ArrayList<>();
+    private final List<Product> allProductList = new ArrayList<>();
     private final List<Product> productList = new ArrayList<>();
     private final Map<String, CartEntry> globalCart = new LinkedHashMap<>();
     private ProductAdapter adapter;
+    private RestaurantAdapter restaurantAdapter;
     private int restaurantId = -1;
     private String restaurantName = "";
+    private String currentSearchQuery = "";
+    private int selectedRestaurantPosition = -1;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -59,15 +75,28 @@ public class RestaurantMenuActivity extends AppCompatActivity {
         }
 
         productsRecyclerView = findViewById(R.id.restaurantProductsRecyclerView);
+        restaurantsRecyclerView = findViewById(R.id.restaurantProductsRestaurantsRecyclerView);
         loadingProgressBar = findViewById(R.id.restaurantProductsLoading);
+        appTitleTextView = findViewById(R.id.restaurantProductsAppTitle);
         titleTextView = findViewById(R.id.restaurantProductsTitle);
+        partnerRestaurantsTitleTextView = findViewById(R.id.restaurantProductsPartnerTitle);
+        emptyTextView = findViewById(R.id.restaurantProductsEmptyTextView);
+        searchEditText = findViewById(R.id.restaurantProductsSearchEditText);
         btnBackToDashboard = findViewById(R.id.restaurantProductsBackButton);
 
+        restaurantsRecyclerView.setLayoutManager(new    LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
+        restaurantsRecyclerView.setNestedScrollingEnabled(false);
         productsRecyclerView.setLayoutManager(new GridLayoutManager(this, 2));
         productsRecyclerView.setNestedScrollingEnabled(false);
         requestQueue = Volley.newRequestQueue(this);
         adapter = new ProductAdapter(productList);
         productsRecyclerView.setAdapter(adapter);
+        restaurantAdapter = new RestaurantAdapter(restaurantList);
+        restaurantsRecyclerView.setAdapter(restaurantAdapter);
+
+        if (appTitleTextView != null) {
+            appTitleTextView.setText("FoodDash");
+        }
 
         restaurantId = getIntent().getIntExtra("restaurant_id", -1);
         restaurantName = getIntent().getStringExtra("restaurant_name");
@@ -75,8 +104,65 @@ public class RestaurantMenuActivity extends AppCompatActivity {
         titleTextView.setText(String.format(Locale.US, "%s - Menu", restaurantName));
         btnBackToDashboard.setOnClickListener(v -> finish());
 
+        if (searchEditText != null) {
+            searchEditText.addTextChangedListener(new TextWatcher() {
+                @Override
+                public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+
+                @Override
+                public void onTextChanged(CharSequence s, int start, int before, int count) {}
+
+                @Override
+                public void afterTextChanged(Editable s) {
+                    currentSearchQuery = s.toString().trim();
+                    applySearchFilter();
+                }
+            });
+        }
+
         loadGlobalCart();
+        fetchRestaurants();
         fetchMenu();
+    }
+
+    private void fetchRestaurants() {
+        JsonObjectRequest request = new JsonObjectRequest(Request.Method.GET, ALL_RESTAURANTS_ENDPOINT, null,
+                response -> {
+                    JSONArray restaurants = response.optJSONArray("restaurants");
+                    if (restaurants == null) restaurants = response.optJSONArray("data");
+                    applyRestaurantData(restaurants != null ? restaurants : new JSONArray());
+                },
+                error -> {
+                    restaurantList.clear();
+                    restaurantAdapter.notifyDataSetChanged();
+                    if (partnerRestaurantsTitleTextView != null) {
+                        partnerRestaurantsTitleTextView.setVisibility(View.GONE);
+                    }
+                    restaurantsRecyclerView.setVisibility(View.GONE);
+                }
+        );
+        requestQueue.add(request);
+    }
+
+    private void applyRestaurantData(JSONArray restaurants) {
+        restaurantList.clear();
+        for (int i = 0; i < restaurants.length(); i++) {
+            JSONObject res = restaurants.optJSONObject(i);
+            if (res == null) continue;
+
+            int id = res.optInt("id", res.optInt("restaurant_id", -1));
+            String name = res.optString("name", "Restaurant");
+            restaurantList.add(new Restaurant(id, name));
+            if (id == restaurantId) {
+                selectedRestaurantPosition = restaurantList.size() - 1;
+            }
+        }
+
+        if (partnerRestaurantsTitleTextView != null) {
+            partnerRestaurantsTitleTextView.setVisibility(restaurantList.isEmpty() ? View.GONE : View.VISIBLE);
+        }
+        restaurantsRecyclerView.setVisibility(restaurantList.isEmpty() ? View.GONE : View.VISIBLE);
+        restaurantAdapter.notifyDataSetChanged();
     }
 
     private void fetchMenu() {
@@ -109,6 +195,7 @@ public class RestaurantMenuActivity extends AppCompatActivity {
     }
 
     private void bindMenuArray(JSONArray menus) {
+        allProductList.clear();
         productList.clear();
         for (int i = 0; i < menus.length(); i++) {
             JSONObject obj = menus.optJSONObject(i);
@@ -116,10 +203,60 @@ public class RestaurantMenuActivity extends AppCompatActivity {
             Product p = parseProduct(obj);
             CartEntry ce = globalCart.get("res:" + restaurantId + ":id:" + p.id);
             if (ce != null) p.quantity = ce.quantity;
-            productList.add(p);
+            allProductList.add(p);
         }
         loadingProgressBar.setVisibility(View.GONE);
+        applySearchFilter();
+    }
+
+    private void applySearchFilter() {
+        productList.clear();
+
+        if (TextUtils.isEmpty(currentSearchQuery)) {
+            productList.addAll(allProductList);
+        } else {
+            String normalizedQuery = currentSearchQuery.toLowerCase(Locale.ROOT);
+            for (Product product : allProductList) {
+                String searchable = (product.name + " " + product.description + " " + product.restaurantName)
+                        .toLowerCase(Locale.ROOT);
+                if (searchable.contains(normalizedQuery)) {
+                    productList.add(product);
+                }
+            }
+        }
+
         adapter.notifyDataSetChanged();
+        updateEmptyState();
+    }
+
+    private void updateEmptyState() {
+        if (emptyTextView == null) return;
+        boolean hasItems = !productList.isEmpty();
+        emptyTextView.setVisibility(hasItems ? View.GONE : View.VISIBLE);
+        productsRecyclerView.setVisibility(hasItems ? View.VISIBLE : View.GONE);
+    }
+
+    private void openRestaurantMenu(Restaurant restaurant) {
+        if (restaurant == null || restaurant.id <= 0) return;
+        restaurantId = restaurant.id;
+        restaurantName = restaurant.name;
+        selectedRestaurantPosition = findRestaurantPosition(restaurant.id);
+        titleTextView.setText(String.format(Locale.US, "%s - Menu", restaurantName));
+        currentSearchQuery = "";
+        if (searchEditText != null) {
+            searchEditText.setText("");
+        }
+        restaurantAdapter.notifyDataSetChanged();
+        fetchMenu();
+    }
+
+    private int findRestaurantPosition(int targetRestaurantId) {
+        for (int i = 0; i < restaurantList.size(); i++) {
+            if (restaurantList.get(i).id == targetRestaurantId) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     private Product parseProduct(JSONObject item) {
@@ -203,6 +340,53 @@ public class RestaurantMenuActivity extends AppCompatActivity {
         if (product.quantity <= 0) globalCart.remove(key);
         else globalCart.put(key, new CartEntry(product.restaurantId, product.restaurantName, product.id, product.name, product.price, product.quantity));
         saveGlobalCart();
+    }
+
+    private class RestaurantAdapter extends RecyclerView.Adapter<RestaurantAdapter.ViewHolder> {
+        private final List<Restaurant> list;
+
+        RestaurantAdapter(List<Restaurant> list) {
+            this.list = list;
+        }
+
+        @NonNull
+        @Override
+        public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+            return new ViewHolder(LayoutInflater.from(parent.getContext()).inflate(R.layout.item_restaurant, parent, false));
+        }
+
+        @Override
+        public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
+            Restaurant restaurant = list.get(position);
+            holder.name.setText(restaurant.name);
+            boolean selected = position == selectedRestaurantPosition;
+            holder.itemView.setAlpha(selected ? 1.0f : 0.85f);
+            holder.itemView.setOnClickListener(v -> openRestaurantMenu(restaurant));
+        }
+
+        @Override
+        public int getItemCount() {
+            return list.size();
+        }
+
+        class ViewHolder extends RecyclerView.ViewHolder {
+            TextView name;
+
+            ViewHolder(View itemView) {
+                super(itemView);
+                name = itemView.findViewById(R.id.restaurantNameTextView);
+            }
+        }
+    }
+
+    private static class Restaurant {
+        int id;
+        String name;
+
+        Restaurant(int id, String name) {
+            this.id = id;
+            this.name = name;
+        }
     }
 
     private static class CartEntry {
