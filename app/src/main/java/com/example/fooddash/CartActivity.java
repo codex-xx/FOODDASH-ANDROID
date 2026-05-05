@@ -70,6 +70,7 @@ public class CartActivity extends AppCompatActivity {
 
         parseCartItems(cartItemsJson);
         setupBottomNavigation();
+        updateNotificationsTabCount();
 
         cartHeaderTextView.setText("Grouped Cart Summary");
         refreshCartUI(false);
@@ -90,6 +91,13 @@ public class CartActivity extends AppCompatActivity {
         });
 
         btnBackToMenu.setOnClickListener(v -> finish());
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        updateCartBadge();
+        updateNotificationsTabCount();
     }
 
     private void parseCartItems(String json) {
@@ -395,6 +403,27 @@ public class CartActivity extends AppCompatActivity {
         }
         tabCartBadgeTextView.setVisibility(View.VISIBLE);
         tabCartBadgeTextView.setText(totalItems > 99 ? "99+" : String.valueOf(totalItems));
+    }
+
+    private void updateNotificationsTabCount() {
+        if (tabNotificationsButton == null) return;
+        int count = getNotificationCountFromPrefs();
+        if (count <= 0) {
+            tabNotificationsButton.setText("Notifications");
+            return;
+        }
+        String badge = count > 99 ? "99+" : String.valueOf(count);
+        tabNotificationsButton.setText("Notif (" + badge + ")");
+    }
+
+    private int getNotificationCountFromPrefs() {
+        SharedPreferences prefs = getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
+        try {
+            JSONArray array = new JSONArray(prefs.getString("notification_history_json", "[]"));
+            return array.length();
+        } catch (Exception ignored) {
+            return 0;
+        }
     }
 
     private static class CartItem {

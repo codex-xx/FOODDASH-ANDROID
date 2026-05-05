@@ -106,7 +106,6 @@
                 android:gravity="center"
                 android:text="0"
                 android:textColor="@color/white"
-                android:textSize="10sp"
                 android:textStyle="bold"
                 android:visibility="gone" />
         </FrameLayout>
@@ -121,7 +120,7 @@
             android:fontFamily="sans-serif-medium"
             android:minHeight="38dp"
             android:padding="0dp"
-            android:text="Alerts"
+            android:text="Notifications"
             android:textAllCaps="false"
             android:textColor="@color/black"
             android:textSize="12sp" />

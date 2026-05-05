@@ -69,6 +69,7 @@ public class OrderHistoryActivity extends AppCompatActivity {
 
         setupBottomNavigation();
         updateCartBadgeFromPrefs();
+        updateNotificationsTabCount();
 
         pollHistory();
     }
@@ -77,6 +78,7 @@ public class OrderHistoryActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         updateCartBadgeFromPrefs();
+        updateNotificationsTabCount();
         startPolling();
     }
 
@@ -330,6 +332,27 @@ public class OrderHistoryActivity extends AppCompatActivity {
         }
         tabCartBadgeTextView.setVisibility(View.VISIBLE);
         tabCartBadgeTextView.setText(count > 99 ? "99+" : String.valueOf(count));
+    }
+
+    private void updateNotificationsTabCount() {
+        if (tabNotificationsButton == null) return;
+        int count = getNotificationCountFromPrefs();
+        if (count <= 0) {
+            tabNotificationsButton.setText("Notifications");
+            return;
+        }
+        String badge = count > 99 ? "99+" : String.valueOf(count);
+        tabNotificationsButton.setText("Notif (" + badge + ")");
+    }
+
+    private int getNotificationCountFromPrefs() {
+        SharedPreferences prefs = getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
+        try {
+            JSONArray array = new JSONArray(prefs.getString("notification_history_json", "[]"));
+            return array.length();
+        } catch (Exception ignored) {
+            return 0;
+        }
     }
 
     private int getCartItemCountFromPrefs() {

@@ -225,6 +225,7 @@ public class CustomerDashboard extends AppCompatActivity {
         setupDeliveryDefaults();
         updateCartButtonState();
         updateCartTabBadge();
+        updateNotificationsTabCount();
 
         swipeRefreshLayout.setOnRefreshListener(() -> {
             String query = searchEditText.getText().toString().trim();
@@ -348,6 +349,7 @@ public class CustomerDashboard extends AppCompatActivity {
         loadGlobalCart();
         updateCartButtonState();
         updateCartTabBadge();
+        updateNotificationsTabCount();
         fetchRestaurants(true);
         startMenuPolling();
         startOrderPolling();
@@ -791,6 +793,27 @@ public class CustomerDashboard extends AppCompatActivity {
         }
         tabCartBadgeTextView.setVisibility(View.VISIBLE);
         tabCartBadgeTextView.setText(count > 99 ? "99+" : String.valueOf(count));
+    }
+
+    private void updateNotificationsTabCount() {
+        if (tabNotificationsButton == null) return;
+        int count = getNotificationCountFromPrefs();
+        if (count <= 0) {
+            tabNotificationsButton.setText("Notifications");
+            return;
+        }
+        String badge = count > 99 ? "99+" : String.valueOf(count);
+        tabNotificationsButton.setText("Notif (" + badge + ")");
+    }
+
+    private int getNotificationCountFromPrefs() {
+        SharedPreferences prefs = getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
+        try {
+            JSONArray array = new JSONArray(prefs.getString("notification_history_json", "[]"));
+            return array.length();
+        } catch (Exception ignored) {
+            return 0;
+        }
     }
 
     private int getGlobalCartItemCount() {

@@ -65,6 +65,7 @@ public class ProfileActivity extends AppCompatActivity {
         setupBottomNavigation();
         bindProfileData();
         updateCartBadgeFromPrefs();
+        updateNotificationsTabCount();
 
         btnEditAddress.setOnClickListener(v -> showEditAddressDialog());
         btnChangePayment.setOnClickListener(v -> showPaymentDialog());
@@ -77,6 +78,7 @@ public class ProfileActivity extends AppCompatActivity {
         super.onResume();
         bindProfileData();
         updateCartBadgeFromPrefs();
+        updateNotificationsTabCount();
     }
 
     private void bindProfileData() {
@@ -224,6 +226,27 @@ public class ProfileActivity extends AppCompatActivity {
         tabCartBadgeTextView.setText(count > 99 ? "99+" : String.valueOf(count));
     }
 
+    private void updateNotificationsTabCount() {
+        if (tabNotificationsButton == null) return;
+        int count = getNotificationCountFromPrefs();
+        if (count <= 0) {
+            tabNotificationsButton.setText("Notifications");
+            return;
+        }
+        String badge = count > 99 ? "99+" : String.valueOf(count);
+        tabNotificationsButton.setText("Notif (" + badge + ")");
+    }
+
+    private int getNotificationCountFromPrefs() {
+        SharedPreferences prefs = getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
+        try {
+            JSONArray array = new JSONArray(prefs.getString("notification_history_json", "[]"));
+            return array.length();
+        } catch (Exception ignored) {
+            return 0;
+        }
+    }
+
     private int getCartItemCountFromPrefs() {
         SharedPreferences prefs = getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
         int count = 0;
@@ -259,7 +282,12 @@ public class ProfileActivity extends AppCompatActivity {
     private void performLogout() {
         AuthSessionManager.clearSession(this);
         SharedPreferences prefs = getApplicationContext().getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
+
+        // Preserve notification history across customer logout.
+        String notificationHistory = prefs.getString("notification_history_json", "[]");
         prefs.edit().clear().apply();
+        prefs.edit().putString("notification_history_json", notificationHistory).apply();
+
         startActivity(new Intent(this, LoginActivity.class));
         finish();
     }
