@@ -8,6 +8,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -28,18 +29,24 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 public class NotificationActivity extends AppCompatActivity {
 
     private static final long POLL_INTERVAL = 5000L; // Poll every 5 seconds
     private static final String PREFS_NAME = "fooddash_prefs";
     private static final String KEY_NOTIFICATION_HISTORY_JSON = "notification_history_json";
+    private static final String KEY_DISMISSED_NOTIFICATION_KEYS_JSON = "dismissed_notification_keys_json";
 
     private RequestQueue requestQueue;
     private LinearLayout notificationsContainer;
+    private Button btnCheckAllNotifications;
+    private Button btnDeleteSelectedNotifications;
     private Button tabHomeButton;
     private Button tabOrdersButton;
     private Button tabCartButton;
@@ -47,6 +54,9 @@ public class NotificationActivity extends AppCompatActivity {
     private Button tabProfileButton;
     private TextView tabCartBadgeTextView;
     private final Handler pollingHandler = new Handler(Looper.getMainLooper());
+    private final Set<String> selectedNotificationKeys = new LinkedHashSet<>();
+    private final List<String> renderedNotificationKeys = new ArrayList<>();
+    private String lastEmptyMessage = "No order updates yet.";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -61,6 +71,8 @@ public class NotificationActivity extends AppCompatActivity {
         requestQueue = Volley.newRequestQueue(this);
         notificationsContainer = findViewById(R.id.notificationsContainer);
         Button btnRefreshNotifications = findViewById(R.id.btnRefreshNotifications);
+        btnCheckAllNotifications = findViewById(R.id.btnCheckAllNotifications);
+        btnDeleteSelectedNotifications = findViewById(R.id.btnDeleteSelectedNotifications);
         tabHomeButton = findViewById(R.id.tabHomeButton);
         tabOrdersButton = findViewById(R.id.tabOrdersButton);
         tabCartButton = findViewById(R.id.tabCartButton);
@@ -71,6 +83,7 @@ public class NotificationActivity extends AppCompatActivity {
         setupBottomNavigation();
         updateCartBadgeFromPrefs();
         updateNotificationsTabCount();
+        setupNotificationSelectionActions();
         btnRefreshNotifications.setOnClickListener(v -> loadOrderUpdates());
         loadOrderUpdates();
         startPolling();
@@ -220,6 +233,16 @@ public class NotificationActivity extends AppCompatActivity {
         loadOrderUpdatesFromModernList(userId);
     }
 
+    private void setupNotificationSelectionActions() {
+        if (btnCheckAllNotifications != null) {
+            btnCheckAllNotifications.setOnClickListener(v -> toggleCheckAllVisibleNotifications());
+        }
+        if (btnDeleteSelectedNotifications != null) {
+            btnDeleteSelectedNotifications.setOnClickListener(v -> deleteSelectedNotifications());
+        }
+        updateSelectionActionState();
+    }
+
     private void loadOrderUpdatesFromModernList(int userId) {
         String url = Constants.URL_ORDERS + "?user_id=" + userId;
         JsonObjectRequest request = new JsonObjectRequest(Request.Method.GET, url, null,
@@ -348,6 +371,7 @@ public class NotificationActivity extends AppCompatActivity {
 
     private void renderNotifications(List<JSONObject> orders) {
         JSONArray history = loadNotificationHistory();
+        Set<String> dismissedEventKeys = loadDismissedNotificationKeys();
         for (JSONObject order : orders) {
             int orderId = order.optInt("id", order.optInt("order_id", -1));
             String status = ActiveOrderActivity.normalizeStatus(order.optString("status", "pending"));
@@ -357,20 +381,20 @@ public class NotificationActivity extends AppCompatActivity {
 
             // Keep previous notification stages visible even when order status progresses.
             if (Constants.STATUS_OUT_FOR_DELIVERY.equals(status)) {
-                addEventIfAbsent(history, createNotificationEvent(orderId, Constants.STATUS_ACCEPTED, restaurant, order));
-                addEventIfAbsent(history, createNotificationEvent(orderId, Constants.STATUS_PICKED_UP, restaurant, order));
-                addEventIfAbsent(history, createNotificationEvent(orderId, Constants.STATUS_OUT_FOR_DELIVERY, restaurant, order));
+                addEventIfAbsent(history, createNotificationEvent(orderId, Constants.STATUS_ACCEPTED, restaurant, order), dismissedEventKeys);
+                addEventIfAbsent(history, createNotificationEvent(orderId, Constants.STATUS_PICKED_UP, restaurant, order), dismissedEventKeys);
+                addEventIfAbsent(history, createNotificationEvent(orderId, Constants.STATUS_OUT_FOR_DELIVERY, restaurant, order), dismissedEventKeys);
             } else if (Constants.STATUS_DELIVERED.equals(status)) {
                 // When delivered, keep all previous notification stages
-                addEventIfAbsent(history, createNotificationEvent(orderId, Constants.STATUS_ACCEPTED, restaurant, order));
-                addEventIfAbsent(history, createNotificationEvent(orderId, Constants.STATUS_PICKED_UP, restaurant, order));
-                addEventIfAbsent(history, createNotificationEvent(orderId, Constants.STATUS_OUT_FOR_DELIVERY, restaurant, order));
-                addEventIfAbsent(history, createNotificationEvent(orderId, Constants.STATUS_DELIVERED, restaurant, order));
+                addEventIfAbsent(history, createNotificationEvent(orderId, Constants.STATUS_ACCEPTED, restaurant, order), dismissedEventKeys);
+                addEventIfAbsent(history, createNotificationEvent(orderId, Constants.STATUS_PICKED_UP, restaurant, order), dismissedEventKeys);
+                addEventIfAbsent(history, createNotificationEvent(orderId, Constants.STATUS_OUT_FOR_DELIVERY, restaurant, order), dismissedEventKeys);
+                addEventIfAbsent(history, createNotificationEvent(orderId, Constants.STATUS_DELIVERED, restaurant, order), dismissedEventKeys);
             } else if (Constants.STATUS_PICKED_UP.equals(status)) {
-                addEventIfAbsent(history, createNotificationEvent(orderId, Constants.STATUS_ACCEPTED, restaurant, order));
-                addEventIfAbsent(history, createNotificationEvent(orderId, Constants.STATUS_PICKED_UP, restaurant, order));
+                addEventIfAbsent(history, createNotificationEvent(orderId, Constants.STATUS_ACCEPTED, restaurant, order), dismissedEventKeys);
+                addEventIfAbsent(history, createNotificationEvent(orderId, Constants.STATUS_PICKED_UP, restaurant, order), dismissedEventKeys);
             } else {
-                addEventIfAbsent(history, createNotificationEvent(orderId, status, restaurant, order));
+                addEventIfAbsent(history, createNotificationEvent(orderId, status, restaurant, order), dismissedEventKeys);
             }
         }
 
@@ -378,8 +402,11 @@ public class NotificationActivity extends AppCompatActivity {
         renderNotificationHistory(history, "No accepted, driver-accepted, or delivery-ready updates yet.");
     }
 
-    private void addEventIfAbsent(JSONArray history, JSONObject event) {
+    private void addEventIfAbsent(JSONArray history, JSONObject event, Set<String> dismissedEventKeys) {
         String eventKey = event.optString("event_key", "");
+        if (dismissedEventKeys.contains(eventKey)) {
+            return;
+        }
         if (!containsEventKey(history, eventKey)) {
             history.put(event);
         }
@@ -391,9 +418,13 @@ public class NotificationActivity extends AppCompatActivity {
     }
 
     private void renderNotificationHistory(JSONArray history, String emptyMessage) {
+        lastEmptyMessage = emptyMessage;
+        selectedNotificationKeys.retainAll(collectEventKeys(history));
+        renderedNotificationKeys.clear();
         notificationsContainer.removeAllViews();
         if (history == null || history.length() == 0) {
             renderEmpty(emptyMessage);
+            updateSelectionActionState();
             updateNotificationsTabCount();
             return;
         }
@@ -406,8 +437,10 @@ public class NotificationActivity extends AppCompatActivity {
 
             int orderId = event.optInt("order_id", -1);
             String status = event.optString("status", "");
+            String eventKey = getEventKey(event, i);
             String titleText = event.optString("title", "Order Update");
             String messageText = event.optString("message", "");
+            renderedNotificationKeys.add(eventKey);
 
             LinearLayout card = new LinearLayout(this);
             card.setOrientation(LinearLayout.VERTICAL);
@@ -419,16 +452,38 @@ public class NotificationActivity extends AppCompatActivity {
             cardParams.setMargins(0, 0, 0, 16);
             card.setLayoutParams(cardParams);
 
+            LinearLayout headerRow = new LinearLayout(this);
+            headerRow.setOrientation(LinearLayout.HORIZONTAL);
+
             TextView title = new TextView(this);
             title.setText(orderId > 0 ? "Order #" + orderId + " " + titleText : titleText);
             title.setTypeface(null, android.graphics.Typeface.BOLD);
             title.setTextSize(16f);
+            title.setLayoutParams(new LinearLayout.LayoutParams(
+                    0,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    1f
+            ));
+
+            CheckBox notificationCheckBox = new CheckBox(this);
+            notificationCheckBox.setChecked(selectedNotificationKeys.contains(eventKey));
+            notificationCheckBox.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                if (isChecked) {
+                    selectedNotificationKeys.add(eventKey);
+                } else {
+                    selectedNotificationKeys.remove(eventKey);
+                }
+                updateSelectionActionState();
+            });
+
+            headerRow.addView(title);
+            headerRow.addView(notificationCheckBox);
 
             TextView detail = new TextView(this);
             detail.setText(messageText);
             detail.setPadding(0, 6, 0, 6);
 
-            card.addView(title);
+            card.addView(headerRow);
             card.addView(detail);
 
             if (Constants.STATUS_PICKED_UP.equals(status) || Constants.STATUS_OUT_FOR_DELIVERY.equals(status) || Constants.STATUS_DELIVERED.equals(status)) {
@@ -442,7 +497,127 @@ public class NotificationActivity extends AppCompatActivity {
         if (rendered == 0) {
             renderEmpty(emptyMessage);
         }
+        updateSelectionActionState();
         updateNotificationsTabCount();
+    }
+
+    private Set<String> collectEventKeys(JSONArray history) {
+        Set<String> eventKeys = new HashSet<>();
+        if (history == null) return eventKeys;
+        for (int i = 0; i < history.length(); i++) {
+            JSONObject event = history.optJSONObject(i);
+            if (event == null) continue;
+            eventKeys.add(getEventKey(event, i));
+        }
+        return eventKeys;
+    }
+
+    private String getEventKey(JSONObject event, int fallbackIndex) {
+        String key = event.optString("event_key", "");
+        if (!TextUtils.isEmpty(key)) return key;
+        int orderId = event.optInt("order_id", -1);
+        String status = event.optString("status", "");
+        long createdAt = event.optLong("created_at", -1L);
+        if (orderId > 0 && !TextUtils.isEmpty(status)) {
+            return createdAt > 0
+                    ? orderId + "_" + status + "_" + createdAt
+                    : orderId + "_" + status;
+        }
+        return "legacy_" + fallbackIndex + "_" + event.optString("title", "") + "_" + event.optString("message", "");
+    }
+
+    private boolean areAllVisibleSelected() {
+        return !renderedNotificationKeys.isEmpty() && selectedNotificationKeys.containsAll(renderedNotificationKeys);
+    }
+
+    private void updateSelectionActionState() {
+        if (btnCheckAllNotifications != null) {
+            boolean hasVisibleItems = !renderedNotificationKeys.isEmpty();
+            btnCheckAllNotifications.setEnabled(hasVisibleItems);
+            btnCheckAllNotifications.setAlpha(hasVisibleItems ? 1f : 0.5f);
+            btnCheckAllNotifications.setText(areAllVisibleSelected() ? "Uncheck All" : "Check All");
+        }
+
+        if (btnDeleteSelectedNotifications != null) {
+            int selectedCount = selectedNotificationKeys.size();
+            btnDeleteSelectedNotifications.setEnabled(selectedCount > 0);
+            btnDeleteSelectedNotifications.setAlpha(selectedCount > 0 ? 1f : 0.5f);
+            btnDeleteSelectedNotifications.setText(
+                    selectedCount > 0 ? "Delete Selected (" + selectedCount + ")" : "Delete Selected"
+            );
+        }
+    }
+
+    private void toggleCheckAllVisibleNotifications() {
+        if (renderedNotificationKeys.isEmpty()) return;
+
+        if (areAllVisibleSelected()) {
+            selectedNotificationKeys.removeAll(renderedNotificationKeys);
+        } else {
+            selectedNotificationKeys.addAll(renderedNotificationKeys);
+        }
+        renderStoredNotificationsOrEmpty(lastEmptyMessage);
+    }
+
+    private void deleteSelectedNotifications() {
+        if (selectedNotificationKeys.isEmpty()) {
+            Toast.makeText(this, "Select notifications to delete.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        JSONArray history = loadNotificationHistory();
+        JSONArray updated = new JSONArray();
+        int removedCount = 0;
+
+        for (int i = 0; i < history.length(); i++) {
+            JSONObject event = history.optJSONObject(i);
+            if (event == null) continue;
+            String key = getEventKey(event, i);
+            if (selectedNotificationKeys.contains(key)) {
+                removedCount++;
+                continue;
+            }
+            updated.put(event);
+        }
+
+        Set<String> dismissedEventKeys = loadDismissedNotificationKeys();
+        dismissedEventKeys.addAll(selectedNotificationKeys);
+        saveDismissedNotificationKeys(dismissedEventKeys);
+
+        saveNotificationHistory(updated);
+        selectedNotificationKeys.clear();
+        renderNotificationHistory(updated, lastEmptyMessage);
+        Toast.makeText(this, removedCount + " notification(s) deleted.", Toast.LENGTH_SHORT).show();
+    }
+
+    private Set<String> loadDismissedNotificationKeys() {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        String raw = prefs.getString(KEY_DISMISSED_NOTIFICATION_KEYS_JSON, "[]");
+        Set<String> keys = new HashSet<>();
+        try {
+            JSONArray arr = new JSONArray(raw);
+            for (int i = 0; i < arr.length(); i++) {
+                String key = arr.optString(i, "");
+                if (!TextUtils.isEmpty(key)) {
+                    keys.add(key);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return keys;
+    }
+
+    private void saveDismissedNotificationKeys(Set<String> keys) {
+        JSONArray arr = new JSONArray();
+        for (String key : keys) {
+            if (!TextUtils.isEmpty(key)) {
+                arr.put(key);
+            }
+        }
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .edit()
+                .putString(KEY_DISMISSED_NOTIFICATION_KEYS_JSON, arr.toString())
+                .apply();
     }
 
     private void addDriverDetailsView(LinearLayout card, JSONObject source) {
