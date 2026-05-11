@@ -53,6 +53,9 @@ public class RegisterActivity extends AppCompatActivity {
     private boolean otpVerified = false;
     private String otpTargetEmail = "";
     private String otpChallengeToken = "";
+    private static final String PREFS_NAME = "fooddash_prefs";
+    private static final String PREF_LAST_REGISTERED_EMAIL = "last_registered_email";
+    private static final String PREF_LAST_REGISTERED_ROLE = "last_registered_role";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -101,7 +104,14 @@ public class RegisterActivity extends AppCompatActivity {
         btnSendOtp.setOnClickListener(v -> sendRegistrationOtp());
 
         btnLogin.setOnClickListener(v -> {
-            startActivity(new Intent(this, LoginActivity.class));
+            Intent loginIntent = new Intent(this, LoginActivity.class);
+            int selectedRoleId = roleGroup.getCheckedRadioButtonId();
+            if (selectedRoleId == R.id.rbDriver) {
+                loginIntent.putExtra("role", "driver");
+            } else if (selectedRoleId == R.id.rbCustomer) {
+                loginIntent.putExtra("role", "customer");
+            }
+            startActivity(loginIntent);
             finish();
         });
 
@@ -511,6 +521,12 @@ public class RegisterActivity extends AppCompatActivity {
                 response -> {
                     boolean isSuccess = response.optBoolean("success", false) || "success".equals(response.optString("status"));
                     if (isSuccess) {
+                        getApplicationContext().getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                                .edit()
+                                .putString(PREF_LAST_REGISTERED_EMAIL, email)
+                                .putString(PREF_LAST_REGISTERED_ROLE, role)
+                                .apply();
+
                         if ("customer".equals(role)) {
                             EmailNotificationService.sendCustomerRegistrationSuccess(getApplicationContext(), email, name);
                         } else {
@@ -524,6 +540,7 @@ public class RegisterActivity extends AppCompatActivity {
 
                         Intent loginIntent = new Intent(this, LoginActivity.class);
                         loginIntent.putExtra("email", email);
+                        loginIntent.putExtra("role", role);
                         loginIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
                         startActivity(loginIntent);
                         finish();

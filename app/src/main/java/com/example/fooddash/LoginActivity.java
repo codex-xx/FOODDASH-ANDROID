@@ -19,12 +19,17 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 
 public class LoginActivity extends AppCompatActivity {
 
     private static final String PREFS_NAME = "fooddash_prefs";
     private static final String DRIVER_APPROVAL_EMAIL_SENT_PREFIX = "driver_approval_email_sent_";
+    private static final String PREF_LAST_REGISTERED_EMAIL = "last_registered_email";
+    private static final String PREF_LAST_REGISTERED_ROLE = "last_registered_role";
 
     EditText emailEdit, passwordEdit;
     Button btnLogin, btnGoRegister;
@@ -63,8 +68,13 @@ public class LoginActivity extends AppCompatActivity {
     }
 
     private void loginUser(String emailInput, String passwordInput) {
+        performLogin(emailInput, passwordInput, URL_LOGIN, true, buildLoginRoleCandidates(emailInput), 0);
+    }
+
+    private void performLogin(String emailInput, String passwordInput, String url, boolean allowFallback, List<String> roleCandidates, int roleIndex) {
         final String email = emailInput == null ? "" : emailInput.trim();
         String password = passwordInput == null ? "" : passwordInput.trim();
+        String roleHint = getRoleCandidate(roleCandidates, roleIndex);
 
         if (email.isEmpty() || password.isEmpty()) {
             Toast.makeText(this, "Please enter email and password", Toast.LENGTH_SHORT).show();
@@ -75,13 +85,27 @@ public class LoginActivity extends AppCompatActivity {
         try {
             postData.put("email", email);
             postData.put("password", password);
+            if (!roleHint.isEmpty()) {
+                postData.put("role", roleHint);
+                postData.put("user_role", roleHint);
+                postData.put("type", roleHint);
+            }
         } catch (JSONException e) {
             Log.e("LoginActivity", "Failed to create JSON object", e);
         }
 
-        JsonObjectRequest request = new JsonObjectRequest(Request.Method.POST, URL_LOGIN, postData,
+        JsonObjectRequest request = new JsonObjectRequest(Request.Method.POST, url, postData,
                 response -> {
                     try {
+                        if (!response.optBoolean("success", true)) {
+                            String message = response.optString("message", "Login failed.");
+                            if (isAuthFailureMessage(message) && tryNextLoginAttempt(emailInput, passwordInput, url, allowFallback, roleCandidates, roleIndex)) {
+                                return;
+                            }
+                            Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+                            return;
+                        }
+
                         JSONObject data = response.optJSONObject("data");
                         JSONObject user = data != null ? data.optJSONObject("user") : null;
 
@@ -99,7 +123,7 @@ public class LoginActivity extends AppCompatActivity {
                                 Toast.makeText(this, message, Toast.LENGTH_LONG).show();
                                 return;
                             }
-                            if (!"approved".equals(status)) {
+                            if (!"approved".equals(status) && !"active".equals(status)) {
                                 Toast.makeText(this, "Driver account is not approved yet.", Toast.LENGTH_LONG).show();
                                 return;
                             }
@@ -117,7 +141,7 @@ public class LoginActivity extends AppCompatActivity {
                         String apiToken = AuthSessionManager.extractAccessToken(response);
 
                         if (apiToken.isEmpty()) {
-                            Log.e("LoginActivity", "API token not found in response: " + response.toString());
+                            Log.e("LoginActivity", "API token not found in response: " + response);
                             Toast.makeText(this, "Login failed: Could not retrieve API token.", Toast.LENGTH_LONG).show();
                             return;
                         }
@@ -186,16 +210,27 @@ public class LoginActivity extends AppCompatActivity {
                     }
                 },
                 error -> {
-                    if (error.networkResponse != null && error.networkResponse.data != null) {
+                    if (error != null && error.networkResponse != null && error.networkResponse.data != null) {
                         try {
-                            String responseBody = new String(error.networkResponse.data, "utf-8");
+                            String responseBody = new String(error.networkResponse.data, StandardCharsets.UTF_8);
                             JSONObject data = new JSONObject(responseBody);
                             String message = data.optString("message", "An unknown error occurred.");
+                            if (isAuthFailureMessage(message) && tryNextLoginAttempt(emailInput, passwordInput, url, allowFallback, roleCandidates, roleIndex)) {
+                                return;
+                            }
                             Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+                            return;
                         } catch (Exception e) {
                             Log.e("LoginActivity", "Error parsing error response", e);
-                            Toast.makeText(this, "Login Failed. Check logs for details.", Toast.LENGTH_LONG).show();
                         }
+                    }
+
+                    if (tryNextLoginAttempt(emailInput, passwordInput, url, allowFallback, roleCandidates, roleIndex)) {
+                        return;
+                    }
+
+                    if (error != null && error.networkResponse != null) {
+                        Toast.makeText(this, "Login Failed (Code " + error.networkResponse.statusCode + ").", Toast.LENGTH_LONG).show();
                     } else {
                         Log.e("LoginActivity", "Login Volley Error", error);
                         Toast.makeText(this, "Login Failed. Check network connection.", Toast.LENGTH_LONG).show();
@@ -204,6 +239,57 @@ public class LoginActivity extends AppCompatActivity {
         );
 
         Volley.newRequestQueue(this).add(request);
+    }
+
+    private List<String> buildLoginRoleCandidates(String email) {
+        ArrayList<String> candidates = new ArrayList<>();
+
+        addRoleCandidate(candidates, resolveLoginRoleHint(email));
+
+        addRoleCandidate(candidates, "");
+        addRoleCandidate(candidates, "driver");
+        addRoleCandidate(candidates, "customer");
+
+        return candidates;
+    }
+
+    private void addRoleCandidate(List<String> candidates, String role) {
+        String normalized = normalizeRole(role);
+        if (!candidates.contains(normalized)) {
+            candidates.add(normalized);
+        }
+    }
+
+    private String getRoleCandidate(List<String> candidates, int index) {
+        if (candidates == null || index < 0 || index >= candidates.size()) {
+            return "";
+        }
+        return candidates.get(index);
+    }
+
+    private boolean tryNextLoginAttempt(String emailInput, String passwordInput, String url, boolean allowFallback, List<String> roleCandidates, int roleIndex) {
+        if (roleCandidates != null && roleIndex + 1 < roleCandidates.size()) {
+            performLogin(emailInput, passwordInput, url, allowFallback, roleCandidates, roleIndex + 1);
+            return true;
+        }
+
+        if (allowFallback && Constants.URL_LOGIN.equals(url)) {
+            Log.w("LoginActivity", "Login failed on primary URL, trying legacy fallback...");
+            performLogin(emailInput, passwordInput, Constants.URL_LOGIN_LEGACY, false, roleCandidates, 0);
+            return true;
+        }
+
+        return false;
+    }
+
+    private boolean isAuthFailureMessage(String message) {
+        String normalized = normalizeValue(message);
+        return normalized.contains("invalid email or password")
+                || normalized.contains("invalid credentials")
+                || normalized.contains("incorrect password")
+                || normalized.contains("unauthorized")
+                || normalized.contains("authentication failed")
+                || normalized.contains("login failed");
     }
 
     private void maybeSendDriverApprovalEmail(String email, JSONObject response, JSONObject data, JSONObject user) {
@@ -268,7 +354,24 @@ public class LoginActivity extends AppCompatActivity {
     }
 
     private boolean isKnownDriverStatus(String status) {
-        return "approved".equals(status) || "pending".equals(status) || "rejected".equals(status);
+        return "approved".equals(status) || "active".equals(status) || "pending".equals(status) || "rejected".equals(status);
+    }
+
+    private String resolveLoginRoleHint(String email) {
+        SharedPreferences prefs = getApplicationContext().getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+
+        String intentRole = normalizeRole(getIntent() != null ? getIntent().getStringExtra("role") : "");
+        if (!intentRole.isEmpty()) {
+            return intentRole;
+        }
+
+        String storedEmail = normalizeValue(prefs.getString(PREF_LAST_REGISTERED_EMAIL, ""));
+        String storedRole = normalizeRole(prefs.getString(PREF_LAST_REGISTERED_ROLE, ""));
+        if (!storedRole.isEmpty() && !storedEmail.isEmpty() && storedEmail.equalsIgnoreCase(normalizeValue(email))) {
+            return storedRole;
+        }
+
+        return "";
     }
 
     private String extractRole(JSONObject response, JSONObject data, JSONObject user) {
@@ -306,7 +409,7 @@ public class LoginActivity extends AppCompatActivity {
 
         for (String key : keys) {
             String direct = source.optString(key, "");
-            if (direct != null && !direct.trim().isEmpty()) {
+            if (!direct.trim().isEmpty()) {
                 return direct;
             }
         }

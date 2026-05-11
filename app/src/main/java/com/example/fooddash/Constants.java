@@ -2,13 +2,14 @@ package com.example.fooddash;
 
 public class Constants {
     // IMPORTANT: Make sure this is the correct IP address for your XAMPP server.
-    public static final String IP_ADDRESS = "192.168.100.179"; // <-- Update this to your XAMPP server's IP address
+    public static final String IP_ADDRESS = "192.168.0.106"; // <-- Update this to your XAMPP server's IP address
 
     public static final String BASE_URL = "http://" + IP_ADDRESS + "/FoodDash/api/";
     public static final String URL_SEND_NOTIFICATION_EMAIL = BASE_URL + "send-notification-email";
     
     // Auth
     public static final String URL_LOGIN = BASE_URL + "login";
+    public static final String URL_LOGIN_LEGACY = BASE_URL + "login.php";
     public static final String URL_REGISTER = BASE_URL + "register";
     public static final String URL_REGISTER_SEND_OTP = BASE_URL + "register/send-otp";
     public static final String URL_REGISTER_SEND_OTP_FALLBACK = BASE_URL + "send-register-otp";
