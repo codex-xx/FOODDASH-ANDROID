@@ -283,15 +283,10 @@ public class ProfileActivity extends AppCompatActivity {
         AuthSessionManager.clearSession(this);
         SharedPreferences prefs = getApplicationContext().getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
 
-        // Preserve notification history and dismissed notification keys across customer logout
-        // so that notifications the user deleted remain dismissed after re-login.
+        // Preserve notification history across customer logout.
         String notificationHistory = prefs.getString("notification_history_json", "[]");
-        String dismissedKeys = prefs.getString("dismissed_notification_keys_json", "[]");
         prefs.edit().clear().apply();
-        prefs.edit()
-                .putString("notification_history_json", notificationHistory)
-                .putString("dismissed_notification_keys_json", dismissedKeys)
-                .apply();
+        prefs.edit().putString("notification_history_json", notificationHistory).apply();
 
         startActivity(new Intent(this, LoginActivity.class));
         finish();
