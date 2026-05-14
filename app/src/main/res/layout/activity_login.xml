@@ -44,6 +44,16 @@
                 android:autofillHints=""
                 android:hint="@string/email" />
 
+            <TextView
+                android:id="@+id/loginSecurityStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:layout_marginBottom="12dp"
+                android:textColor="@color/error_red"
+                android:textSize="12sp"
+                android:visibility="gone" />
+
             <EditText
                 android:id="@+id/passwordEdit"
                 android:layout_width="match_parent"

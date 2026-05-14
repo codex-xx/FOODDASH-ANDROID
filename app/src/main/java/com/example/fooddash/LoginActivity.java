@@ -3,6 +3,8 @@ package com.example.fooddash;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Bundle;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.util.Log;
 import android.widget.Button;
 import android.widget.EditText;
@@ -33,7 +35,7 @@ public class LoginActivity extends AppCompatActivity {
 
     EditText emailEdit, passwordEdit;
     Button btnLogin, btnGoRegister;
-    TextView forgotPassword;
+    TextView forgotPassword, loginSecurityStatus;
     String URL_LOGIN = Constants.URL_LOGIN;
 
     @Override
@@ -46,6 +48,7 @@ public class LoginActivity extends AppCompatActivity {
         btnLogin = findViewById(R.id.btnLogin);
         btnGoRegister = findViewById(R.id.btnGoRegister);
         forgotPassword = findViewById(R.id.forgotPassword);
+        loginSecurityStatus = findViewById(R.id.loginSecurityStatus);
 
         Intent intent = getIntent();
         if (intent != null) {
@@ -54,6 +57,20 @@ public class LoginActivity extends AppCompatActivity {
                 emailEdit.setText(registeredEmail);
             }
         }
+
+        // Add text watcher to email field to update security status in real-time
+        emailEdit.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                updateSecurityStatus(s.toString());
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {}
+        });
 
         btnLogin.setOnClickListener(v -> loginUser(emailEdit.getText().toString(), passwordEdit.getText().toString()));
         btnGoRegister.setOnClickListener(v -> {
@@ -65,10 +82,66 @@ public class LoginActivity extends AppCompatActivity {
             Intent forgotPasswordIntent = new Intent(this, ForgotPasswordActivity.class);
             startActivity(forgotPasswordIntent);
         });
+
+        // Check initial security status if email is pre-filled
+        updateSecurityStatus(emailEdit.getText().toString());
     }
 
     private void loginUser(String emailInput, String passwordInput) {
+        final String email = emailInput == null ? "" : emailInput.trim();
+
+        // Check if login is locked
+        if (LoginAttemptsManager.isLoginLocked(this, email)) {
+            long remainingSeconds = LoginAttemptsManager.getRemainingLockoutTime(this, email) / 1000;
+            String lockoutMessage = String.format(
+                    "Too many failed login attempts. Please try again in %d second%s.",
+                    remainingSeconds,
+                    remainingSeconds == 1 ? "" : "s"
+            );
+            Toast.makeText(this, lockoutMessage, Toast.LENGTH_LONG).show();
+            return;
+        }
+
         performLogin(emailInput, passwordInput, URL_LOGIN, true, buildLoginRoleCandidates(emailInput), 0);
+    }
+
+    /**
+     * Updates the security status text view based on the current email and login attempt state.
+     * Shows lockout warning if account is locked, or remaining attempts if there have been failures.
+     */
+    private void updateSecurityStatus(String email) {
+        if (email == null || email.trim().isEmpty()) {
+            loginSecurityStatus.setVisibility(TextView.GONE);
+            return;
+        }
+
+        if (LoginAttemptsManager.isLoginLocked(this, email)) {
+            long remainingSeconds = LoginAttemptsManager.getRemainingLockoutTime(this, email) / 1000;
+            String statusText = String.format(
+                    "🔒 Account locked. Try again in %d second%s.",
+                    remainingSeconds,
+                    remainingSeconds == 1 ? "" : "s"
+            );
+            loginSecurityStatus.setText(statusText);
+            loginSecurityStatus.setVisibility(TextView.VISIBLE);
+        } else {
+            int failedAttempts = LoginAttemptsManager.getFailedAttemptCount(this, email);
+            int remainingAttempts = LoginAttemptsManager.getRemainingAttempts(this, email);
+            
+            if (failedAttempts > 0 && remainingAttempts > 0) {
+                String statusText = String.format(
+                        "⚠️ %d failed attempt%s. %d attempt%s remaining.",
+                        failedAttempts,
+                        failedAttempts == 1 ? "" : "s",
+                        remainingAttempts,
+                        remainingAttempts == 1 ? "" : "s"
+                );
+                loginSecurityStatus.setText(statusText);
+                loginSecurityStatus.setVisibility(TextView.VISIBLE);
+            } else {
+                loginSecurityStatus.setVisibility(TextView.GONE);
+            }
+        }
     }
 
     private void performLogin(String emailInput, String passwordInput, String url, boolean allowFallback, List<String> roleCandidates, int roleIndex) {
@@ -99,7 +172,30 @@ public class LoginActivity extends AppCompatActivity {
                     try {
                         if (!response.optBoolean("success", true)) {
                             String message = response.optString("message", "Login failed.");
-                            if (isAuthFailureMessage(message) && tryNextLoginAttempt(emailInput, passwordInput, url, allowFallback, roleCandidates, roleIndex)) {
+                            if (isAuthFailureMessage(message)) {
+                                // Try next attempt (different role or fallback URL)
+                                if (tryNextLoginAttempt(emailInput, passwordInput, url, allowFallback, roleCandidates, roleIndex)) {
+                                    return;
+                                }
+                                // All attempts exhausted - now record the failed attempt
+                                int failedAttempts = LoginAttemptsManager.recordFailedAttempt(this, email);
+                                int remainingAttempts = LoginAttemptsManager.getRemainingAttempts(this, email);
+                                
+                                if (remainingAttempts > 0) {
+                                    String warningMessage = String.format(
+                                            "%s\n\nAttempts remaining: %d",
+                                            message,
+                                            remainingAttempts
+                                    );
+                                    Toast.makeText(this, warningMessage, Toast.LENGTH_LONG).show();
+                                } else {
+                                    // Account is now locked
+                                    String lockoutMessage = "Too many failed login attempts. Please try again after 1 minute.";
+                                    Toast.makeText(this, lockoutMessage, Toast.LENGTH_LONG).show();
+                                }
+                                return;
+                            }
+                            if (tryNextLoginAttempt(emailInput, passwordInput, url, allowFallback, roleCandidates, roleIndex)) {
                                 return;
                             }
                             Toast.makeText(this, message, Toast.LENGTH_LONG).show();
@@ -150,6 +246,9 @@ public class LoginActivity extends AppCompatActivity {
                         String tokenType = AuthSessionManager.extractTokenType(response);
                         Long expiresAt = AuthSessionManager.extractExpiresAtEpochSeconds(response, apiToken);
                         AuthSessionManager.saveSession(this, apiToken, refreshToken, expiresAt, tokenType);
+
+                        // Clear login attempts on successful login
+                        LoginAttemptsManager.clearLoginAttempts(this, email);
 
                         SharedPreferences prefs = getApplicationContext().getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
                         int userId = extractUserId(response, data, user);
@@ -215,7 +314,27 @@ public class LoginActivity extends AppCompatActivity {
                             String responseBody = new String(error.networkResponse.data, StandardCharsets.UTF_8);
                             JSONObject data = new JSONObject(responseBody);
                             String message = data.optString("message", "An unknown error occurred.");
-                            if (isAuthFailureMessage(message) && tryNextLoginAttempt(emailInput, passwordInput, url, allowFallback, roleCandidates, roleIndex)) {
+                            if (isAuthFailureMessage(message)) {
+                                // Try next attempt (different role or fallback URL)
+                                if (tryNextLoginAttempt(emailInput, passwordInput, url, allowFallback, roleCandidates, roleIndex)) {
+                                    return;
+                                }
+                                // All attempts exhausted - now record the failed attempt
+                                int failedAttempts = LoginAttemptsManager.recordFailedAttempt(this, email);
+                                int remainingAttempts = LoginAttemptsManager.getRemainingAttempts(this, email);
+                                
+                                if (remainingAttempts > 0) {
+                                    String warningMessage = String.format(
+                                            "%s\n\nAttempts remaining: %d",
+                                            message,
+                                            remainingAttempts
+                                    );
+                                    Toast.makeText(this, warningMessage, Toast.LENGTH_LONG).show();
+                                } else {
+                                    // Account is now locked
+                                    String lockoutMessage = "Too many failed login attempts. Please try again after 1 minute.";
+                                    Toast.makeText(this, lockoutMessage, Toast.LENGTH_LONG).show();
+                                }
                                 return;
                             }
                             Toast.makeText(this, message, Toast.LENGTH_LONG).show();
