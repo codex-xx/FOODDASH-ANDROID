@@ -3,7 +3,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/light_faded_orange"
+    android:background="@drawable/bg_app_gradient"
     android:fillViewport="true">
 
     <LinearLayout
@@ -16,22 +16,23 @@
         <androidx.cardview.widget.CardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            app:cardBackgroundColor="@color/white"
-            app:cardCornerRadius="8dp"
-            app:cardElevation="0dp">
+            app:cardBackgroundColor="@color/brand_surface"
+            app:cardCornerRadius="20dp"
+            app:cardElevation="2dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:background="@drawable/view_border"
+                android:background="@drawable/bg_surface_card"
                 android:orientation="vertical"
-                android:padding="16dp">
+                android:padding="18dp">
 
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/title_fooddash"
                     android:textAlignment="center"
+                    android:textColor="@color/brand_primary_dark"
                     android:textSize="24sp"
                     android:textStyle="bold" />
 
@@ -40,7 +41,8 @@
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="16dp"
                     android:text="@string/register_subtitle"
-                    android:textAlignment="center" />
+                    android:textAlignment="center"
+                    android:textColor="@color/brand_text_muted" />
 
                 <TextView
                     android:layout_width="match_parent"
@@ -73,7 +75,11 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:autofillHints=""
+                    android:background="@drawable/bg_input_field"
                     android:hint="@string/name"
+                    android:padding="12dp"
+                    android:textColor="@color/brand_text"
+                    android:textColorHint="@color/brand_text_muted"
                     android:ems="10"/>
 
                 <EditText
@@ -81,7 +87,9 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:autofillHints=""
+                    android:background="@drawable/bg_input_field"
                     android:hint="@string/contact_number"
+                    android:padding="12dp"
                     android:inputType="phone" />
 
                 <EditText
@@ -89,7 +97,9 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:autofillHints=""
+                    android:background="@drawable/bg_input_field"
                     android:hint="@string/delivery_address"
+                    android:padding="12dp"
                     android:inputType="textPostalAddress" />
 
                 <EditText
@@ -97,26 +107,29 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:autofillHints=""
+                    android:background="@drawable/bg_input_field"
                     android:hint="@string/email"
+                    android:padding="12dp"
                     android:ems="10" />
 
                 <Button
                     android:id="@+id/btnSendOtp"
-                    style="?attr/materialButtonOutlinedStyle"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
+                    android:backgroundTint="@color/brand_primary"
                     android:text="@string/send_code"
-                    android:textColor="@color/black"
-                    app:strokeColor="@color/black" />
+                    android:textColor="@color/white" />
 
                 <EditText
                     android:id="@+id/otpEdit"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:autofillHints=""
+                    android:background="@drawable/bg_input_field"
                     android:hint="@string/otp_code"
                     android:inputType="number"
+                    android:padding="12dp"
                     android:maxLength="6" />
 
                 <EditText
@@ -124,7 +137,9 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:autofillHints=""
+                    android:background="@drawable/bg_input_field"
                     android:hint="@string/password"
+                    android:padding="12dp"
                     android:inputType="textPassword" />
 
                 <EditText
@@ -132,7 +147,9 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:autofillHints=""
+                    android:background="@drawable/bg_input_field"
                     android:hint="@string/confirm_password"
+                    android:padding="12dp"
                     android:inputType="textPassword" />
 
                 <LinearLayout
@@ -147,6 +164,8 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:autofillHints=""
+                        android:background="@drawable/bg_input_field"
+                        android:padding="12dp"
                         android:hint="@string/license_number" />
 
                     <TextView
@@ -183,13 +202,12 @@
 
                 <Button
                     android:id="@+id/btnRegister"
-                    style="?attr/materialButtonOutlinedStyle"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="16dp"
+                    android:backgroundTint="@color/brand_primary"
                     android:text="@string/register"
-                    android:textColor="@color/black"
-                    app:strokeColor="@color/black" />
+                    android:textColor="@color/white" />
 
                 <Button
                     android:id="@+id/btnLogin"
@@ -198,8 +216,8 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
                     android:text="@string/login"
-                    android:textColor="@color/black"
-                    app:strokeColor="@color/black" />
+                    android:textColor="@color/brand_primary"
+                    app:strokeColor="@color/brand_primary" />
             </LinearLayout>
         </androidx.cardview.widget.CardView>
     </LinearLayout>

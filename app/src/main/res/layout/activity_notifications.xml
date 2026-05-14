@@ -66,42 +66,47 @@
         android:elevation="4dp"
         android:gravity="center"
         android:orientation="horizontal"
-        android:padding="8dp">
+        android:padding="8dp"
+        android:minHeight="80dp">
 
         <Button
             android:id="@+id/tabHomeButton"
             android:layout_width="0dp"
-            android:layout_height="38dp"
+            android:layout_height="match_parent"
             android:layout_marginEnd="6dp"
             android:layout_weight="1"
             android:background="@drawable/bottom_nav_tab_unselected"
             android:fontFamily="sans-serif-medium"
-            android:minHeight="38dp"
-            android:padding="0dp"
+            android:minHeight="64dp"
+            android:padding="6dp"
             android:text="Home"
+            android:drawableTop="@drawable/ic_home"
             android:textAllCaps="false"
             android:textColor="@color/black"
-            android:textSize="12sp" />
+            android:textSize="11sp"
+            android:gravity="center" />
 
         <Button
             android:id="@+id/tabOrdersButton"
             android:layout_width="0dp"
-            android:layout_height="38dp"
+            android:layout_height="match_parent"
             android:layout_marginEnd="6dp"
             android:layout_weight="1"
             android:background="@drawable/bottom_nav_tab_unselected"
             android:fontFamily="sans-serif-medium"
-            android:minHeight="38dp"
-            android:padding="0dp"
+            android:minHeight="64dp"
+            android:padding="6dp"
             android:text="Orders"
+            android:drawableTop="@drawable/ic_orders"
             android:textAllCaps="false"
             android:textColor="@color/black"
-            android:textSize="12sp" />
+            android:textSize="11sp"
+            android:gravity="center" />
 
         <FrameLayout
             android:id="@+id/tabCartContainer"
             android:layout_width="0dp"
-            android:layout_height="38dp"
+            android:layout_height="match_parent"
             android:layout_marginEnd="6dp"
             android:layout_weight="1">
 
@@ -111,12 +116,14 @@
                 android:layout_height="match_parent"
                 android:background="@drawable/bottom_nav_tab_unselected"
                 android:fontFamily="sans-serif-medium"
-                android:minHeight="38dp"
-                android:padding="0dp"
+                android:minHeight="64dp"
+                android:padding="6dp"
                 android:text="Cart"
+                android:drawableTop="@drawable/ic_shopping_cart"
                 android:textAllCaps="false"
                 android:textColor="@color/black"
-                android:textSize="12sp" />
+                android:textSize="11sp"
+                android:gravity="center" />
 
             <TextView
                 android:id="@+id/tabCartBadgeTextView"
@@ -136,31 +143,35 @@
         <Button
             android:id="@+id/tabNotificationsButton"
             android:layout_width="0dp"
-            android:layout_height="38dp"
+            android:layout_height="match_parent"
             android:layout_marginEnd="6dp"
             android:layout_weight="1"
             android:background="@drawable/bottom_nav_tab_unselected"
             android:fontFamily="sans-serif-medium"
-            android:minHeight="38dp"
-            android:padding="0dp"
-            android:text="Notifications"
+            android:minHeight="64dp"
+            android:padding="6dp"
+            android:text="Notif"
+            android:drawableTop="@drawable/ic_notifications"
             android:textAllCaps="false"
             android:textColor="@color/black"
-            android:textSize="12sp" />
+            android:textSize="11sp"
+            android:gravity="center" />
 
         <Button
             android:id="@+id/tabProfileButton"
             android:layout_width="0dp"
-            android:layout_height="38dp"
+            android:layout_height="match_parent"
             android:layout_weight="1"
             android:background="@drawable/bottom_nav_tab_unselected"
             android:fontFamily="sans-serif-medium"
-            android:minHeight="38dp"
-            android:padding="0dp"
+            android:minHeight="64dp"
+            android:padding="6dp"
             android:text="Profile"
+            android:drawableTop="@drawable/ic_profile"
             android:textAllCaps="false"
             android:textColor="@color/black"
-            android:textSize="12sp" />
+            android:textSize="11sp"
+            android:gravity="center" />
 
     </LinearLayout>
 

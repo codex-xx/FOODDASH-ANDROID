@@ -4,7 +4,7 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/light_faded_orange"
+    android:background="@drawable/bg_app_gradient"
     tools:context=".CustomerDashboard">
 
     <TextView
@@ -12,6 +12,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="FOOD DASH"
+        android:textColor="@color/brand_primary_dark"
         android:textSize="24sp"
         android:textStyle="bold"
         app:layout_constraintTop_toTopOf="parent"
@@ -30,7 +31,7 @@
         android:src="@android:drawable/ic_menu_recent_history"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintTop_toTopOf="parent"
-        app:tint="@color/black" />
+        app:tint="@color/brand_text" />
 
     <androidx.cardview.widget.CardView
         android:id="@+id/searchBarCardView"
@@ -39,7 +40,8 @@
         android:layout_marginStart="16dp"
         android:layout_marginTop="12dp"
         android:layout_marginEnd="16dp"
-        app:cardCornerRadius="14dp"
+        app:cardBackgroundColor="@color/brand_surface"
+        app:cardCornerRadius="18dp"
         app:cardElevation="2dp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
@@ -73,8 +75,8 @@
                 android:inputType="text"
                 android:maxLines="1"
                 android:padding="0dp"
-                android:textColor="@android:color/black"
-                android:textColorHint="@android:color/darker_gray" />
+                android:textColor="@color/brand_text"
+                android:textColorHint="@color/brand_text_muted" />
         </LinearLayout>
 
     </androidx.cardview.widget.CardView>
@@ -86,6 +88,7 @@
         android:layout_marginStart="16dp"
         android:layout_marginTop="12dp"
         android:text="Partner Restaurants"
+        android:textColor="@color/brand_text"
         android:textSize="16sp"
         android:textStyle="bold"
         app:layout_constraintStart_toStartOf="parent"
@@ -110,6 +113,7 @@
         android:layout_marginTop="8dp"
         android:layout_marginEnd="16dp"
         android:text="Mixed picks from partner restaurants"
+        android:textColor="@color/brand_text"
         android:textSize="15sp"
         android:textStyle="bold"
         app:layout_constraintEnd_toEndOf="parent"
@@ -123,11 +127,13 @@
         android:layout_marginStart="16dp"
         android:layout_marginTop="8dp"
         android:layout_marginEnd="16dp"
-        android:background="@android:drawable/edit_text"
+        android:background="@drawable/bg_input_field"
         android:hint="Delivery address"
         android:inputType="textPostalAddress"
         android:maxLines="2"
         android:padding="10dp"
+        android:textColor="@color/brand_text"
+        android:textColorHint="@color/brand_text_muted"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/selectedRestaurantTextView" />
@@ -180,6 +186,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="4dp"
                         android:text="Restaurants"
+                        android:textColor="@color/brand_text"
                         android:textSize="16sp"
                         android:textStyle="bold"
                         android:visibility="gone" />
@@ -198,6 +205,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="16dp"
                         android:text="Menu Items"
+                        android:textColor="@color/brand_text"
                         android:textSize="16sp"
                         android:textStyle="bold"
                         android:visibility="gone" />
@@ -217,7 +225,7 @@
                         android:layout_marginTop="24dp"
                         android:gravity="center"
                         android:text="No results found"
-                        android:textColor="@android:color/darker_gray"
+                        android:textColor="@color/brand_text_muted"
                         android:textSize="16sp"
                         android:visibility="gone" />
                 </LinearLayout>
@@ -236,7 +244,7 @@
                 android:layout_height="wrap_content"
                 android:layout_gravity="center"
                 android:text="No menu available"
-                android:textColor="@android:color/darker_gray"
+                android:textColor="@color/brand_text_muted"
                 android:textSize="16sp"
                 android:visibility="gone" />
 
@@ -248,11 +256,12 @@
         android:id="@+id/vehicleRadioGroup"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
+        android:background="@drawable/bg_section_panel"
         android:orientation="horizontal"
         app:layout_constraintBottom_toTopOf="@+id/totalPriceTextView"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        android:padding="16dp"
+        android:padding="12dp"
         android:gravity="center">
 
         <RadioButton
@@ -283,6 +292,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="Total: ₱0.00"
+        android:textColor="@color/brand_primary_dark"
         android:textSize="20sp"
         android:textStyle="bold"
         app:layout_constraintBottom_toTopOf="@+id/orderTrackingLayout"
@@ -292,14 +302,12 @@
 
     <Button
         android:id="@+id/btnPlaceOrder"
-        style="?attr/materialButtonOutlinedStyle"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:visibility="gone"
         android:text="Review Cart"
-        android:textColor="@color/black"
-        app:strokeColor="@color/black"
-        app:backgroundTint="@color/white"
+        android:textColor="@color/white"
+        app:backgroundTint="@color/brand_primary"
         app:layout_constraintBottom_toTopOf="@+id/orderTrackingLayout"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
@@ -314,7 +322,7 @@
         android:layout_marginStart="16dp"
         android:layout_marginEnd="16dp"
         android:layout_marginBottom="8dp"
-        android:background="@drawable/view_border"
+        android:background="@drawable/bg_section_panel"
         android:orientation="vertical"
         android:padding="10dp"
         android:visibility="gone"
@@ -326,6 +334,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Live Order Tracking"
+            android:textColor="@color/brand_text"
             android:textStyle="bold" />
 
         <TextView
@@ -334,6 +343,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
             android:text="No active order"
+            android:textColor="@color/brand_text_muted"
             android:textSize="12sp" />
 
         <TextView
@@ -342,6 +352,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
             android:text="Driver location: waiting assignment"
+            android:textColor="@color/brand_text_muted"
             android:textSize="12sp" />
     </LinearLayout>
 
@@ -357,6 +368,7 @@
         android:gravity="center"
         android:orientation="horizontal"
         android:padding="8dp"
+        android:minHeight="80dp"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent">
@@ -364,37 +376,41 @@
         <Button
             android:id="@+id/tabHomeButton"
             android:layout_width="0dp"
-            android:layout_height="38dp"
+            android:layout_height="match_parent"
             android:layout_marginEnd="6dp"
             android:background="@drawable/bottom_nav_tab_unselected"
             android:fontFamily="sans-serif-medium"
             android:layout_weight="1"
-            android:minHeight="38dp"
-            android:padding="0dp"
+            android:minHeight="64dp"
+            android:padding="6dp"
             android:text="Home"
+            android:drawableTop="@drawable/ic_home"
             android:textAllCaps="false"
             android:textColor="@color/black"
-            android:textSize="12sp" />
+            android:textSize="11sp"
+            android:gravity="center" />
 
         <Button
             android:id="@+id/tabOrdersButton"
             android:layout_width="0dp"
-            android:layout_height="38dp"
+            android:layout_height="match_parent"
             android:layout_marginEnd="6dp"
             android:background="@drawable/bottom_nav_tab_unselected"
             android:fontFamily="sans-serif-medium"
             android:layout_weight="1"
-            android:minHeight="38dp"
-            android:padding="0dp"
+            android:minHeight="64dp"
+            android:padding="6dp"
             android:text="Orders"
+            android:drawableTop="@drawable/ic_orders"
             android:textAllCaps="false"
             android:textColor="@color/black"
-            android:textSize="12sp" />
+            android:textSize="11sp"
+            android:gravity="center" />
 
         <FrameLayout
             android:id="@+id/tabCartContainer"
             android:layout_width="0dp"
-            android:layout_height="38dp"
+            android:layout_height="match_parent"
             android:layout_marginEnd="6dp"
             android:layout_weight="1">
 
@@ -404,12 +420,14 @@
                 android:layout_height="match_parent"
                 android:background="@drawable/bottom_nav_tab_unselected"
                 android:fontFamily="sans-serif-medium"
-                android:minHeight="38dp"
-                android:padding="0dp"
+                android:minHeight="64dp"
+                android:padding="6dp"
                 android:text="Cart"
+                android:drawableTop="@drawable/ic_shopping_cart"
                 android:textAllCaps="false"
                 android:textColor="@color/black"
-                android:textSize="12sp" />
+                android:textSize="11sp"
+                android:gravity="center" />
 
             <TextView
                 android:id="@+id/tabCartBadgeTextView"
@@ -430,31 +448,35 @@
         <Button
             android:id="@+id/tabNotificationsButton"
             android:layout_width="0dp"
-            android:layout_height="38dp"
+            android:layout_height="match_parent"
             android:layout_marginEnd="6dp"
             android:background="@drawable/bottom_nav_tab_unselected"
             android:fontFamily="sans-serif-medium"
             android:layout_weight="1"
-            android:minHeight="38dp"
-            android:padding="0dp"
-                android:text="Notifications"
+            android:minHeight="64dp"
+            android:padding="6dp"
+            android:text="Notif"
+            android:drawableTop="@drawable/ic_notifications"
             android:textAllCaps="false"
             android:textColor="@color/black"
-            android:textSize="12sp" />
+            android:textSize="11sp"
+            android:gravity="center" />
 
         <Button
             android:id="@+id/tabProfileButton"
             android:layout_width="0dp"
-            android:layout_height="38dp"
+            android:layout_height="match_parent"
             android:background="@drawable/bottom_nav_tab_unselected"
             android:fontFamily="sans-serif-medium"
             android:layout_weight="1"
-            android:minHeight="38dp"
-            android:padding="0dp"
+            android:minHeight="64dp"
+            android:padding="6dp"
             android:text="Profile"
+            android:drawableTop="@drawable/ic_profile"
             android:textAllCaps="false"
             android:textColor="@color/black"
-            android:textSize="12sp" />
+            android:textSize="11sp"
+            android:gravity="center" />
 
     </LinearLayout>
 

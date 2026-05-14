@@ -2,7 +2,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:fillViewport="true"
-    android:background="@color/light_faded_orange">
+    android:background="@drawable/bg_app_gradient">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -14,6 +14,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Driver Dispatch"
+            android:textColor="@color/brand_primary_dark"
             android:textSize="24sp"
             android:textStyle="bold" />
 
@@ -23,6 +24,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
             android:text="Vehicle: --"
+            android:textColor="@color/brand_text"
             android:textStyle="bold" />
 
         <LinearLayout
@@ -48,6 +50,7 @@
                 android:layout_height="wrap_content"
                 android:text="History"
                 style="?attr/materialButtonOutlinedStyle"
+                android:textColor="@color/brand_primary"
                 android:textSize="12sp" />
         </LinearLayout>
 
@@ -56,6 +59,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
+            android:backgroundTint="@color/brand_primary"
             android:text="Refresh Delivery Requests" />
 
         <TextView
@@ -64,6 +68,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
             android:text="Incoming Request"
+            android:textColor="@color/brand_text"
             android:textStyle="bold" />
 
         <TextView
@@ -71,7 +76,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
-            android:background="@drawable/view_border"
+            android:background="@drawable/bg_section_panel"
             android:padding="10dp"
             android:text="No request yet" />
 
@@ -86,6 +91,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
+                android:backgroundTint="@color/brand_secondary"
                 android:text="Accept" />
 
             <Button
@@ -94,6 +100,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginStart="8dp"
                 android:layout_weight="1"
+                android:backgroundTint="@color/error_red"
                 android:text="Reject" />
         </LinearLayout>
 
@@ -102,6 +109,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
             android:text="Active Delivery"
+            android:textColor="@color/brand_text"
             android:textStyle="bold" />
 
         <TextView
@@ -109,7 +117,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
-            android:background="@drawable/view_border"
+            android:background="@drawable/bg_section_panel"
             android:padding="10dp"
             android:text="No active order" />
 
@@ -118,6 +126,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
+            android:backgroundTint="@color/brand_primary"
             android:text="Arrived at Restaurant" />
 
         <Button
@@ -125,6 +134,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
+            android:backgroundTint="@color/brand_primary"
             android:text="Picked Up Order" />
 
         <Button
@@ -132,6 +142,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
+            android:backgroundTint="@color/brand_primary"
             android:text="On the Way" />
 
         <Button
@@ -139,6 +150,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
+            android:backgroundTint="@color/brand_secondary"
             android:text="Delivered" />
 
         <Button
@@ -146,6 +158,8 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="14dp"
+            android:backgroundTint="@color/brand_surface"
+            android:textColor="@color/brand_primary"
             android:text="@string/logout" />
     </LinearLayout>
 </ScrollView>

@@ -4,7 +4,8 @@
     android:layout_width="wrap_content"
     android:layout_height="match_parent"
     android:layout_margin="6dp"
-    app:cardCornerRadius="12dp"
+    app:cardBackgroundColor="@color/brand_surface"
+    app:cardCornerRadius="16dp"
     app:cardElevation="2dp">
 
     <TextView
@@ -15,7 +16,7 @@
         android:minWidth="120dp"
         android:paddingStart="16dp"
         android:paddingEnd="16dp"
-        android:textColor="@android:color/black"
+        android:textColor="@color/brand_text"
         android:textSize="15sp"
         android:textStyle="bold" />
 
