@@ -1,9 +1,32 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Base application theme. -->
     <style name="Base.Theme.FOODDASH" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- Customize your light theme here. -->
-        <!-- <item name="colorPrimary">@color/my_light_primary</item> -->
+        <item name="colorPrimary">@color/brand_primary</item>
+        <item name="colorOnPrimary">@color/white</item>
+        <item name="colorPrimaryContainer">@color/faded_orange</item>
+        <item name="colorOnPrimaryContainer">@color/brand_text</item>
+        <item name="colorSecondary">@color/brand_secondary</item>
+        <item name="colorOnSecondary">@color/white</item>
+        <item name="colorSurface">@color/brand_surface</item>
+        <item name="colorOnSurface">@color/brand_text</item>
+        <item name="colorSurfaceVariant">@color/brand_surface_soft</item>
+        <item name="colorOutline">@color/brand_border</item>
+        <item name="android:colorBackground">@color/light_faded_orange</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@color/brand_surface</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textColorPrimary">@color/brand_text</item>
+        <item name="android:textColorSecondary">@color/brand_text_muted</item>
+        <item name="android:windowBackground">@drawable/bg_app_gradient</item>
+        <item name="materialCardViewStyle">@style/Widget.FOODDASH.Card</item>
     </style>
 
     <style name="Theme.FOODDASH" parent="Base.Theme.FOODDASH" />
+
+    <style name="Widget.FOODDASH.Card" parent="Widget.Material3.CardView.Elevated">
+        <item name="cardBackgroundColor">@color/brand_surface</item>
+        <item name="cardCornerRadius">18dp</item>
+        <item name="cardElevation">2dp</item>
+    </style>
 </resources>
