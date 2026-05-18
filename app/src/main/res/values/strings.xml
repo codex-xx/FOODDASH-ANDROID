@@ -17,6 +17,17 @@
     <string name="driver">Driver</string>
     <string name="contact_number">Contact Number</string>
     <string name="delivery_address">Delivery Address</string>
+    <string name="pick_delivery_location">Pick Delivery Location</string>
+    <string name="use_my_current_location">Use My Current Location</string>
+    <string name="confirm_location">Confirm Location</string>
+    <string name="selected_location">Selected location</string>
+    <string name="location_loading">Getting location...</string>
+    <string name="location_unavailable">Location not available yet</string>
+    <string name="location_permission_required">Location permission is required to detect your current location.</string>
+    <string name="location_saved">Location saved</string>
+    <string name="open_map_picker">Open Map Picker</string>
+    <string name="customer_location_help">Drag the pin to fine-tune your delivery location.</string>
+    <string name="rider_location_help">Your current GPS location will be used for nearby order assignment.</string>
     <string name="confirm_password">Confirm Password</string>
     <string name="license_number">License Number</string>
     <string name="vehicle_type">Vehicle Type</string>

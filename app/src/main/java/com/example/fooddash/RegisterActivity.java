@@ -1,6 +1,12 @@
 package com.example.fooddash;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.appcompat.app.AlertDialog;
+import androidx.appcompat.app.AppCompatActivity;
+
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.text.Editable;
 import android.text.TextUtils;
@@ -19,9 +25,6 @@ import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import androidx.appcompat.app.AlertDialog;
-import androidx.appcompat.app.AppCompatActivity;
-
 import com.android.volley.Request;
 import com.android.volley.toolbox.JsonObjectRequest;
 import com.android.volley.toolbox.Volley;
@@ -35,7 +38,6 @@ public class RegisterActivity extends AppCompatActivity {
 
     private static final String NAME_REGEX = "^[A-Za-z ]+$";
     private static final String CONTACT_REGEX = "^\\d+$";
-    private static final String ADDRESS_REGEX = "^[A-Za-z0-9 .,#/\\-]+$";
     private static final String LICENSE_REGEX = "^[A-Za-z0-9 -]+$";
 
     EditText nameEdit, contactEdit, addressEdit, emailEdit, otpEdit, passwordEdit, confirmPasswordEdit;
@@ -57,6 +59,21 @@ public class RegisterActivity extends AppCompatActivity {
     private static final String PREF_LAST_REGISTERED_EMAIL = "last_registered_email";
     private static final String PREF_LAST_REGISTERED_ROLE = "last_registered_role";
 
+    private LinearLayout customerLocationContainer;
+    private TextView customerLocationSummaryText;
+    private TextView riderLocationSummaryText;
+    private Button btnOpenLocationPicker;
+    private ActivityResultLauncher<Intent> customerLocationPickerLauncher;
+
+    private String selectedCustomerAddress = "";
+    private Double selectedCustomerLatitude = null;
+    private Double selectedCustomerLongitude = null;
+    private String selectedDriverAddress = "";
+    private Double selectedDriverLatitude = null;
+    private Double selectedDriverLongitude = null;
+    private boolean driverLocationLoading = false;
+    private String pendingLocationRole = "customer";
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -71,6 +88,10 @@ public class RegisterActivity extends AppCompatActivity {
         vehicleTypeSpinner = findViewById(R.id.vehicleTypeSpinner);
         termsAgreementCheckbox = findViewById(R.id.termsAgreementCheckbox);
         viewTermsText = findViewById(R.id.viewTermsText);
+        customerLocationContainer = findViewById(R.id.customerLocationContainer);
+        customerLocationSummaryText = findViewById(R.id.customerLocationSummaryText);
+        riderLocationSummaryText = findViewById(R.id.riderLocationSummaryText);
+        btnOpenLocationPicker = findViewById(R.id.btnOpenLocationPicker);
         emailEdit = findViewById(R.id.emailEdit);
         otpEdit = findViewById(R.id.otpEdit);
         passwordEdit = findViewById(R.id.passwordEdit);
@@ -84,18 +105,55 @@ public class RegisterActivity extends AppCompatActivity {
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         vehicleTypeSpinner.setAdapter(adapter);
 
+        customerLocationPickerLauncher = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(),
+                result -> {
+                    if (result.getResultCode() != RESULT_OK || result.getData() == null) {
+                        return;
+                    }
+
+                    Intent data = result.getData();
+                    String pickedAddress = data.getStringExtra(CustomerLocationPickerActivity.EXTRA_ADDRESS);
+                    if (pickedAddress == null) {
+                        pickedAddress = "";
+                    }
+                    Double pickedLatitude = getDoubleExtra(data, CustomerLocationPickerActivity.EXTRA_LATITUDE);
+                    Double pickedLongitude = getDoubleExtra(data, CustomerLocationPickerActivity.EXTRA_LONGITUDE);
+
+                    if ("driver".equals(pendingLocationRole)) {
+                        selectedDriverAddress = pickedAddress;
+                        selectedDriverLatitude = pickedLatitude;
+                        selectedDriverLongitude = pickedLongitude;
+                        refreshRiderLocationSummary();
+                    } else {
+                        selectedCustomerAddress = pickedAddress;
+                        selectedCustomerLatitude = pickedLatitude;
+                        selectedCustomerLongitude = pickedLongitude;
+                        refreshCustomerLocationUi();
+                    }
+                }
+        );
+
         viewTermsText.setOnClickListener(v -> showTermsDialog());
+
+        btnOpenLocationPicker.setOnClickListener(v -> openCustomerLocationPicker());
 
         roleGroup.setOnCheckedChangeListener((group, checkedId) -> {
             boolean isDriver = checkedId == R.id.rbDriver;
             driverFieldsContainer.setVisibility(isDriver ? View.VISIBLE : View.GONE);
-            // Hide addressEdit for Driver, show for Customer
             addressEdit.setVisibility(isDriver ? View.GONE : View.VISIBLE);
+            customerLocationContainer.setVisibility(View.VISIBLE);
+            riderLocationSummaryText.setVisibility(isDriver ? View.VISIBLE : View.GONE);
+            btnOpenLocationPicker.setText(R.string.open_map_picker);
 
             if (!isDriver) {
                 licenseNumberEdit.setText("");
                 vehicleTypeSpinner.setSelection(0);
                 termsAgreementCheckbox.setChecked(false);
+                updateCustomerLocationSummary();
+            } else {
+                ensureDriverLocation();
+                refreshRiderLocationSummary();
             }
         });
 
@@ -171,6 +229,11 @@ public class RegisterActivity extends AppCompatActivity {
             return;
         }
 
+        if (!isDriver && (selectedCustomerLatitude == null || selectedCustomerLongitude == null)) {
+            Toast.makeText(this, "Please pick your delivery location on the map", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
         if (isDriver && (licenseNumber.isEmpty() || vehicleType.isEmpty())) {
             Toast.makeText(this, "Please fill all driver fields", Toast.LENGTH_SHORT).show();
             return;
@@ -186,11 +249,6 @@ public class RegisterActivity extends AppCompatActivity {
             return;
         }
 
-        if (!isDriver && !deliveryAddress.matches(ADDRESS_REGEX)) {
-            Toast.makeText(this, "Address contains invalid special characters", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
         if (isDriver && !licenseNumber.matches(LICENSE_REGEX)) {
             Toast.makeText(this, "License number contains invalid special characters", Toast.LENGTH_SHORT).show();
             return;
@@ -198,6 +256,12 @@ public class RegisterActivity extends AppCompatActivity {
 
         if (isDriver && !hasAcceptedTerms) {
             Toast.makeText(this, "Please accept the Terms of Agreement", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        if (isDriver && (selectedDriverLatitude == null || selectedDriverLongitude == null)) {
+            ensureDriverLocation();
+            Toast.makeText(this, "Getting rider location, please try again in a moment.", Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -241,9 +305,20 @@ public class RegisterActivity extends AppCompatActivity {
             postData.put("status", "customer".equals(role) ? "active" : "pending");
             postData.put("delivery_address", isDriver ? "" : deliveryAddress);
             postData.put("address", isDriver ? "" : deliveryAddress);
+            postData.put("latitude", getRegistrationLatitude(role));
+            postData.put("longitude", getRegistrationLongitude(role));
+            postData.put("customer_latitude", "customer".equals(role) ? getRegistrationLatitude(role) : JSONObject.NULL);
+            postData.put("customer_longitude", "customer".equals(role) ? getRegistrationLongitude(role) : JSONObject.NULL);
+            postData.put("driver_latitude", isDriver ? getRegistrationLatitude(role) : JSONObject.NULL);
+            postData.put("driver_longitude", isDriver ? getRegistrationLongitude(role) : JSONObject.NULL);
+            if ("customer".equals(role)) {
+                postData.put("selected_location", buildLocationSummary(selectedCustomerAddress, selectedCustomerLatitude, selectedCustomerLongitude));
+            }
             if (isDriver) {
                 postData.put("license_number", licenseNumber);
                 postData.put("vehicle_type", vehicleType);
+                postData.put("delivery_address", selectedDriverAddress);
+                postData.put("address", selectedDriverAddress);
             }
             postData.put("otp", otpCode);
             postData.put("code", otpCode);
@@ -275,6 +350,11 @@ public class RegisterActivity extends AppCompatActivity {
         String password = passwordEdit.getText().toString().trim();
         String confirmPassword = confirmPasswordEdit.getText().toString().trim();
 
+        if (selectedRoleId == R.id.rbCustomer && (selectedCustomerLatitude == null || selectedCustomerLongitude == null)) {
+            Toast.makeText(this, "Please choose your delivery location first", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
         if (name.length() < 2) {
             Toast.makeText(this, "Name must be at least 2 characters.", Toast.LENGTH_SHORT).show();
             return;
@@ -293,6 +373,16 @@ public class RegisterActivity extends AppCompatActivity {
             payload.put("role", role);
             payload.put("delivery_address", deliveryAddress);
             payload.put("address", deliveryAddress);
+            payload.put("latitude", getRegistrationLatitude(role));
+            payload.put("longitude", getRegistrationLongitude(role));
+            payload.put("customer_latitude", "customer".equals(role) ? getRegistrationLatitude(role) : JSONObject.NULL);
+            payload.put("customer_longitude", "customer".equals(role) ? getRegistrationLongitude(role) : JSONObject.NULL);
+            payload.put("driver_latitude", "driver".equals(role) ? getRegistrationLatitude(role) : JSONObject.NULL);
+            payload.put("driver_longitude", "driver".equals(role) ? getRegistrationLongitude(role) : JSONObject.NULL);
+            if ("driver".equals(role)) {
+                payload.put("delivery_address", selectedDriverAddress);
+                payload.put("address", selectedDriverAddress);
+            }
             payload.put("email", email);
             payload.put("purpose", "register");
             if (!TextUtils.isEmpty(password)) {
@@ -516,6 +606,135 @@ public class RegisterActivity extends AppCompatActivity {
         otpChallengeToken = "";
     }
 
+    private void openCustomerLocationPicker() {
+        int selectedRoleId = roleGroup.getCheckedRadioButtonId();
+        pendingLocationRole = selectedRoleId == R.id.rbDriver ? "driver" : "customer";
+
+        Intent intent = new Intent(this, CustomerLocationPickerActivity.class);
+        if ("driver".equals(pendingLocationRole)) {
+            if (selectedDriverLatitude != null && selectedDriverLongitude != null) {
+                intent.putExtra(CustomerLocationPickerActivity.EXTRA_LATITUDE, selectedDriverLatitude);
+                intent.putExtra(CustomerLocationPickerActivity.EXTRA_LONGITUDE, selectedDriverLongitude);
+                intent.putExtra(CustomerLocationPickerActivity.EXTRA_ADDRESS, selectedDriverAddress);
+            }
+        } else if (selectedCustomerLatitude != null && selectedCustomerLongitude != null) {
+            intent.putExtra(CustomerLocationPickerActivity.EXTRA_LATITUDE, selectedCustomerLatitude);
+            intent.putExtra(CustomerLocationPickerActivity.EXTRA_LONGITUDE, selectedCustomerLongitude);
+            intent.putExtra(CustomerLocationPickerActivity.EXTRA_ADDRESS, selectedCustomerAddress);
+        }
+        customerLocationPickerLauncher.launch(intent);
+    }
+
+    private void ensureDriverLocation() {
+        if (driverLocationLoading || (selectedDriverLatitude != null && selectedDriverLongitude != null)) {
+            refreshRiderLocationSummary();
+            return;
+        }
+
+        if (!LocationHelper.hasLocationPermission(this)) {
+            driverLocationLoading = false;
+            refreshRiderLocationSummary();
+            Toast.makeText(this, getString(R.string.location_permission_required), Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        driverLocationLoading = true;
+        refreshRiderLocationSummary();
+        LocationHelper.resolveCurrentLocation(this, new LocationHelper.LocationCallback() {
+            @Override
+            public void onLocationReady(LocationHelper.LocationData locationData) {
+                driverLocationLoading = false;
+                if (locationData != null) {
+                    selectedDriverLatitude = locationData.latitude;
+                    selectedDriverLongitude = locationData.longitude;
+                    selectedDriverAddress = locationData.address == null ? "" : locationData.address;
+                }
+                refreshRiderLocationSummary();
+            }
+
+            @Override
+            public void onError(String message) {
+                driverLocationLoading = false;
+                refreshRiderLocationSummary();
+                Toast.makeText(RegisterActivity.this, message, Toast.LENGTH_LONG).show();
+            }
+        });
+    }
+
+    private void refreshCustomerLocationUi() {
+        if (customerLocationSummaryText == null) {
+            return;
+        }
+
+        if (selectedCustomerLatitude == null || selectedCustomerLongitude == null) {
+            customerLocationSummaryText.setText(getString(R.string.location_unavailable));
+            addressEdit.setText("");
+            return;
+        }
+
+        customerLocationSummaryText.setText(buildLocationSummary(selectedCustomerAddress, selectedCustomerLatitude, selectedCustomerLongitude));
+        addressEdit.setText(selectedCustomerAddress);
+    }
+
+    private void updateCustomerLocationSummary() {
+        refreshCustomerLocationUi();
+    }
+
+    private void refreshRiderLocationSummary() {
+        if (riderLocationSummaryText == null) {
+            return;
+        }
+
+        if (driverLocationLoading) {
+            riderLocationSummaryText.setText(getString(R.string.location_loading));
+            return;
+        }
+
+        if (selectedDriverLatitude == null || selectedDriverLongitude == null) {
+            riderLocationSummaryText.setText(getString(R.string.location_unavailable));
+            return;
+        }
+
+        riderLocationSummaryText.setText(buildLocationSummary(selectedDriverAddress, selectedDriverLatitude, selectedDriverLongitude));
+    }
+
+    private String buildLocationSummary(String address, Double latitude, Double longitude) {
+        String coords = buildCoordinateSummary(latitude, longitude);
+        if (TextUtils.isEmpty(address)) {
+            return coords;
+        }
+        return address + "\n" + coords;
+    }
+
+    private String buildCoordinateSummary(Double latitude, Double longitude) {
+        if (latitude == null || longitude == null) {
+            return "";
+        }
+        return String.format(java.util.Locale.getDefault(), "Lat: %.6f, Lng: %.6f", latitude, longitude);
+    }
+
+    private double getRegistrationLatitude(String role) {
+        if ("driver".equals(role) && selectedDriverLatitude != null) {
+            return selectedDriverLatitude;
+        }
+        return selectedCustomerLatitude != null ? selectedCustomerLatitude : 0d;
+    }
+
+    private double getRegistrationLongitude(String role) {
+        if ("driver".equals(role) && selectedDriverLongitude != null) {
+            return selectedDriverLongitude;
+        }
+        return selectedCustomerLongitude != null ? selectedCustomerLongitude : 0d;
+    }
+
+    private Double getDoubleExtra(Intent data, String key) {
+        if (data == null || !data.hasExtra(key)) {
+            return null;
+        }
+        double value = data.getDoubleExtra(key, Double.NaN);
+        return Double.isNaN(value) ? null : value;
+    }
+
     private void submitRegistration(JSONObject postData, String role, String email, String name, boolean allowFallback, String targetUrl) {
         JsonObjectRequest request = new JsonObjectRequest(Request.Method.POST, targetUrl, postData,
                 response -> {
@@ -525,6 +744,9 @@ public class RegisterActivity extends AppCompatActivity {
                                 .edit()
                                 .putString(PREF_LAST_REGISTERED_EMAIL, email)
                                 .putString(PREF_LAST_REGISTERED_ROLE, role)
+                                .putString("delivery_address", "customer".equals(role) ? selectedCustomerAddress : selectedDriverAddress)
+                                .putString("latitude", String.valueOf(getRegistrationLatitude(role)))
+                                .putString("longitude", String.valueOf(getRegistrationLongitude(role)))
                                 .apply();
 
                         if ("customer".equals(role)) {

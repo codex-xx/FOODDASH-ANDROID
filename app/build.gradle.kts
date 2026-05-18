@@ -36,6 +36,7 @@ dependencies {
     implementation(libs.material)
     implementation(libs.activity)
     implementation(libs.constraintlayout)
+    implementation("org.osmdroid:osmdroid-android:6.1.18")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
     implementation("com.android.volley:volley:1.2.1")

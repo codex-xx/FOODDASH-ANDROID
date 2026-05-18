@@ -4,6 +4,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.text.Editable;
+import android.text.TextUtils;
 import android.text.TextWatcher;
 import android.util.Log;
 import android.widget.Button;
@@ -269,6 +270,16 @@ public class LoginActivity extends AppCompatActivity {
                             findFirstStringForKeys(data, "delivery_address", "address"),
                             findFirstStringForKeys(response, "delivery_address", "address")
                         );
+                        String latitude = firstNonEmpty(
+                            findFirstStringForKeys(user, "latitude", "lat", "customer_latitude", "driver_latitude"),
+                            findFirstStringForKeys(data, "latitude", "lat", "customer_latitude", "driver_latitude"),
+                            findFirstStringForKeys(response, "latitude", "lat", "customer_latitude", "driver_latitude")
+                        );
+                        String longitude = firstNonEmpty(
+                            findFirstStringForKeys(user, "longitude", "lng", "customer_longitude", "driver_longitude"),
+                            findFirstStringForKeys(data, "longitude", "lng", "customer_longitude", "driver_longitude"),
+                            findFirstStringForKeys(response, "longitude", "lng", "customer_longitude", "driver_longitude")
+                        );
                         String contactNumber = firstNonEmpty(
                             findFirstStringForKeys(user, "contact_number", "phone", "contact"),
                             findFirstStringForKeys(data, "contact_number", "phone", "contact"),
@@ -280,7 +291,9 @@ public class LoginActivity extends AppCompatActivity {
                             .putString("user_name", userName)
                             .putString("user_role", role)
                             .putString("user_email", email)
-                            .putString("delivery_address", deliveryAddress)
+                            .putString("delivery_address", TextUtils.isEmpty(deliveryAddress) ? prefs.getString("delivery_address", "") : deliveryAddress)
+                            .putString("latitude", TextUtils.isEmpty(latitude) ? prefs.getString("latitude", "") : latitude)
+                            .putString("longitude", TextUtils.isEmpty(longitude) ? prefs.getString("longitude", "") : longitude)
                             .putString("contact_number", contactNumber)
                             .putString("vehicle_type", vehicleType)
                             .apply();

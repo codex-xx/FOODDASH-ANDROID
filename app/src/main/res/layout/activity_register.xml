@@ -102,6 +102,48 @@
                     android:padding="12dp"
                     android:inputType="textPostalAddress" />
 
+                <LinearLayout
+                    android:id="@+id/customerLocationContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/customer_location_help"
+                        android:textColor="@color/brand_text_muted" />
+
+                    <TextView
+                        android:id="@+id/customerLocationSummaryText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:text="@string/location_unavailable"
+                        android:textStyle="bold" />
+
+                    <Button
+                        android:id="@+id/btnOpenLocationPicker"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:backgroundTint="@color/brand_primary"
+                        android:text="@string/open_map_picker"
+                        android:textColor="@color/white" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/riderLocationSummaryText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:background="@drawable/bg_input_field"
+                    android:padding="12dp"
+                    android:text="@string/rider_location_help"
+                    android:visibility="gone" />
+
                 <EditText
                     android:id="@+id/emailEdit"
                     android:layout_width="match_parent"

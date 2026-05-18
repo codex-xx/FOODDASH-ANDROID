@@ -274,6 +274,10 @@ public class DriverDashboard extends AppCompatActivity {
                 if (rejectedOrderIds.contains(orderId)) {
                     continue;
                 }
+
+                if (!isOrderWithinAllowedRadius(order)) {
+                    continue;
+                }
                 
                 if (orderDriverId <= 0) {
                     if (vehicleMatches(order) && incomingOrder == null) {
@@ -297,6 +301,80 @@ public class DriverDashboard extends AppCompatActivity {
             return true;
         }
         return orderVehicle.equals(getVehicleType());
+    }
+
+    private boolean isOrderWithinAllowedRadius(JSONObject order) {
+        if (order == null) {
+            return true;
+        }
+
+        Double riderLat = getStoredDouble("latitude");
+        Double riderLng = getStoredDouble("longitude");
+        if (riderLat == null || riderLng == null) {
+            return true;
+        }
+
+        Double restaurantLat = getOrderDouble(order, "restaurant_latitude", "restaurant_lat", "merchant_latitude", "lat");
+        Double restaurantLng = getOrderDouble(order, "restaurant_longitude", "restaurant_lng", "merchant_longitude", "lng");
+        Double radiusKm = getOrderDouble(order, "delivery_radius", "delivery_zone_radius_km", "delivery_radius_km", "radius_km");
+
+        if (restaurantLat == null || restaurantLng == null || radiusKm == null || radiusKm <= 0d) {
+            return true;
+        }
+
+        double distanceKm = haversineKm(riderLat, riderLng, restaurantLat, restaurantLng);
+        return distanceKm <= radiusKm;
+    }
+
+    private Double getStoredDouble(String key) {
+        String value = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getString(key, "");
+        if (TextUtils.isEmpty(value)) {
+            return null;
+        }
+        try {
+            return Double.parseDouble(value);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private Double getOrderDouble(JSONObject order, String... keys) {
+        if (order == null || keys == null) {
+            return null;
+        }
+
+        for (String key : keys) {
+            if (TextUtils.isEmpty(key) || !order.has(key) || order.isNull(key)) {
+                continue;
+            }
+
+            try {
+                Object value = order.get(key);
+                if (value instanceof Number) {
+                    return ((Number) value).doubleValue();
+                }
+                if (value != null) {
+                    String text = value.toString().trim();
+                    if (!TextUtils.isEmpty(text)) {
+                        return Double.parseDouble(text);
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+        }
+
+        return null;
+    }
+
+    private double haversineKm(double lat1, double lng1, double lat2, double lng2) {
+        double earthRadiusKm = 6371.0;
+        double dLat = Math.toRadians(lat2 - lat1);
+        double dLng = Math.toRadians(lng2 - lng1);
+        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
+                * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+        double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return earthRadiusKm * c;
     }
 
     private void renderIncomingOrder() {
