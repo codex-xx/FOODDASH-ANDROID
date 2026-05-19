@@ -1,73 +1,191 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="12dp"
-    android:background="@color/light_faded_orange">
+    android:background="@color/light_faded_orange"
+    android:padding="16dp">
 
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Order Notifications"
-        android:textSize="24sp"
-        android:textStyle="bold"
-        android:layout_marginBottom="8dp"/>
+        android:fontFamily="sans-serif-medium"
+        android:text="@string/notifications_title"
+        android:textColor="@color/black"
+        android:textSize="28sp"
+        android:textStyle="bold" />
 
-    <Button
-        android:id="@+id/btnRefreshNotifications"
-        android:layout_width="match_parent"
+    <TextView
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Refresh Updates" />
+        android:layout_marginTop="6dp"
+        android:text="@string/notifications_subtitle"
+        android:textColor="@color/text_gray"
+        android:textSize="13sp" />
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
+        android:layout_marginTop="14dp"
         android:orientation="horizontal">
 
-        <Button
-            android:id="@+id/btnCheckAllNotifications"
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnRefreshNotifications"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginEnd="6dp"
+            android:layout_marginEnd="8dp"
             android:layout_weight="1"
-            android:text="Check All" />
+            android:text="@string/refresh_notifications"
+            android:textAllCaps="false"
+            app:cornerRadius="16dp"
+            app:icon="@drawable/ic_notifications"
+            app:iconPadding="8dp"
+            app:iconGravity="textStart" />
 
-        <Button
-            android:id="@+id/btnDeleteSelectedNotifications"
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnClearAllNotifications"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="8dp"
+            android:layout_weight="1"
+            android:text="@string/clear_all_notifications"
+            android:textAllCaps="false"
+            app:cornerRadius="16dp"
+            app:icon="@drawable/ic_remove"
+            app:iconPadding="8dp"
+            app:iconGravity="textStart" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnMarkAllRead"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="Delete Selected" />
-
+            android:text="@string/mark_all_read"
+            android:textAllCaps="false"
+            app:cornerRadius="16dp"
+            app:iconPadding="8dp"
+            app:iconGravity="textStart" />
     </LinearLayout>
 
-    <ScrollView
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:fillViewport="true"
+        android:scrollbars="none">
+
+        <com.google.android.material.chip.ChipGroup
+            android:id="@+id/notificationFilterChipGroup"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            app:selectionRequired="true"
+            app:singleSelection="true">
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chipAllNotifications"
+                style="@style/Widget.Material3.Chip.Filter"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/notification_filter_all"
+                app:checkedIconVisible="false"
+                app:chipCornerRadius="999dp"
+                app:chipIconVisible="false" />
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chipUnreadNotifications"
+                style="@style/Widget.Material3.Chip.Filter"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/notification_filter_unread"
+                app:checkedIconVisible="false"
+                app:chipCornerRadius="999dp"
+                app:chipIconVisible="false" />
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chipOrderNotifications"
+                style="@style/Widget.Material3.Chip.Filter"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/notification_filter_orders"
+                app:checkedIconVisible="false"
+                app:chipCornerRadius="999dp"
+                app:chipIconVisible="false" />
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chipPromotionNotifications"
+                style="@style/Widget.Material3.Chip.Filter"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/notification_filter_promotions"
+                app:checkedIconVisible="false"
+                app:chipCornerRadius="999dp"
+                app:chipIconVisible="false" />
+        </com.google.android.material.chip.ChipGroup>
+    </HorizontalScrollView>
+
+    <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+        android:id="@+id/notificationsSwipeRefreshLayout"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:layout_marginTop="10dp"
-        android:fillViewport="true">
+        android:layout_marginTop="14dp">
 
-        <LinearLayout
-            android:id="@+id/notificationsContainer"
+        <FrameLayout
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical" />
-    </ScrollView>
+            android:layout_height="match_parent">
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/notificationsRecyclerView"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:clipToPadding="false"
+                android:paddingBottom="12dp"
+                android:scrollbars="vertical" />
+
+            <LinearLayout
+                android:id="@+id/notificationsEmptyState"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:padding="24dp"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/notificationsEmptyTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="sans-serif-medium"
+                    android:text="@string/no_notifications_yet"
+                    android:textColor="@color/black"
+                    android:textSize="22sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/notificationsEmptySubtitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center"
+                    android:text="@string/no_notifications_body"
+                    android:textColor="@color/text_gray"
+                    android:textSize="14sp" />
+            </LinearLayout>
+        </FrameLayout>
+    </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 
     <LinearLayout
         android:id="@+id/bottomNavLayout"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
+        android:layout_marginTop="12dp"
         android:background="@drawable/bottom_nav_background"
         android:elevation="4dp"
         android:gravity="center"
+        android:minHeight="80dp"
         android:orientation="horizontal"
-        android:padding="8dp"
-        android:minHeight="80dp">
+        android:padding="8dp">
 
         <Button
             android:id="@+id/tabHomeButton"
@@ -76,15 +194,15 @@
             android:layout_marginEnd="6dp"
             android:layout_weight="1"
             android:background="@drawable/bottom_nav_tab_unselected"
+            android:drawableTop="@drawable/ic_home"
             android:fontFamily="sans-serif-medium"
+            android:gravity="center"
             android:minHeight="64dp"
             android:padding="6dp"
             android:text="Home"
-            android:drawableTop="@drawable/ic_home"
             android:textAllCaps="false"
             android:textColor="@color/black"
-            android:textSize="11sp"
-            android:gravity="center" />
+            android:textSize="11sp" />
 
         <Button
             android:id="@+id/tabOrdersButton"
@@ -93,15 +211,15 @@
             android:layout_marginEnd="6dp"
             android:layout_weight="1"
             android:background="@drawable/bottom_nav_tab_unselected"
+            android:drawableTop="@drawable/ic_orders"
             android:fontFamily="sans-serif-medium"
+            android:gravity="center"
             android:minHeight="64dp"
             android:padding="6dp"
             android:text="Orders"
-            android:drawableTop="@drawable/ic_orders"
             android:textAllCaps="false"
             android:textColor="@color/black"
-            android:textSize="11sp"
-            android:gravity="center" />
+            android:textSize="11sp" />
 
         <FrameLayout
             android:id="@+id/tabCartContainer"
@@ -115,15 +233,15 @@
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:background="@drawable/bottom_nav_tab_unselected"
+                android:drawableTop="@drawable/ic_shopping_cart"
                 android:fontFamily="sans-serif-medium"
+                android:gravity="center"
                 android:minHeight="64dp"
                 android:padding="6dp"
                 android:text="Cart"
-                android:drawableTop="@drawable/ic_shopping_cart"
                 android:textAllCaps="false"
                 android:textColor="@color/black"
-                android:textSize="11sp"
-                android:gravity="center" />
+                android:textSize="11sp" />
 
             <TextView
                 android:id="@+id/tabCartBadgeTextView"
@@ -136,26 +254,48 @@
                 android:gravity="center"
                 android:text="0"
                 android:textColor="@color/white"
+                android:textSize="10sp"
                 android:textStyle="bold"
                 android:visibility="gone" />
         </FrameLayout>
 
-        <Button
-            android:id="@+id/tabNotificationsButton"
+        <FrameLayout
+            android:id="@+id/tabNotificationsContainer"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_marginEnd="6dp"
-            android:layout_weight="1"
-            android:background="@drawable/bottom_nav_tab_unselected"
-            android:fontFamily="sans-serif-medium"
-            android:minHeight="64dp"
-            android:padding="6dp"
-            android:text="Notif"
-            android:drawableTop="@drawable/ic_notifications"
-            android:textAllCaps="false"
-            android:textColor="@color/black"
-            android:textSize="11sp"
-            android:gravity="center" />
+            android:layout_weight="1">
+
+            <Button
+                android:id="@+id/tabNotificationsButton"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@drawable/bottom_nav_tab_unselected"
+                android:drawableTop="@drawable/ic_notifications"
+                android:fontFamily="sans-serif-medium"
+                android:gravity="center"
+                android:minHeight="64dp"
+                android:padding="6dp"
+                android:text="Notif"
+                android:textAllCaps="false"
+                android:textColor="@color/black"
+                android:textSize="11sp" />
+
+            <TextView
+                android:id="@+id/tabNotificationsBadgeTextView"
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:layout_gravity="end|top"
+                android:layout_marginEnd="-2dp"
+                android:layout_marginTop="-2dp"
+                android:background="@drawable/cart_badge_background"
+                android:gravity="center"
+                android:text="0"
+                android:textColor="@color/white"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
+        </FrameLayout>
 
         <Button
             android:id="@+id/tabProfileButton"
@@ -163,15 +303,15 @@
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:background="@drawable/bottom_nav_tab_unselected"
+            android:drawableTop="@drawable/ic_profile"
             android:fontFamily="sans-serif-medium"
+            android:gravity="center"
             android:minHeight="64dp"
             android:padding="6dp"
             android:text="Profile"
-            android:drawableTop="@drawable/ic_profile"
             android:textAllCaps="false"
             android:textColor="@color/black"
-            android:textSize="11sp"
-            android:gravity="center" />
+            android:textSize="11sp" />
 
     </LinearLayout>
 

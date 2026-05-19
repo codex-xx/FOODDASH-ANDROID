@@ -125,7 +125,13 @@ public class DriverDashboard extends AppCompatActivity {
         btnLogout.setOnClickListener(v -> {
             AuthSessionManager.clearSession(this);
             SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+            String notificationHistory = prefs.getString("notification_history_json", "[]");
+            String dismissedNotificationKeys = prefs.getString("dismissed_notification_keys_json", "[]");
             prefs.edit().clear().apply();
+            prefs.edit()
+                    .putString("notification_history_json", notificationHistory)
+                    .putString("dismissed_notification_keys_json", dismissedNotificationKeys)
+                    .apply();
             startActivity(new Intent(this, LoginActivity.class));
             finish();
         });

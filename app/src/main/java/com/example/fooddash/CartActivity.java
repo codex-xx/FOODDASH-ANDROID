@@ -407,7 +407,7 @@ public class CartActivity extends AppCompatActivity {
 
     private void updateNotificationsTabCount() {
         if (tabNotificationsButton == null) return;
-        int count = getNotificationCountFromPrefs();
+        int count = NotificationStore.getUnreadGroupCount(this);
         if (count <= 0) {
             tabNotificationsButton.setText("Notifications");
             return;
@@ -417,13 +417,7 @@ public class CartActivity extends AppCompatActivity {
     }
 
     private int getNotificationCountFromPrefs() {
-        SharedPreferences prefs = getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
-        try {
-            JSONArray array = new JSONArray(prefs.getString("notification_history_json", "[]"));
-            return array.length();
-        } catch (Exception ignored) {
-            return 0;
-        }
+        return NotificationStore.getUnreadGroupCount(this);
     }
 
     private static class CartItem {

@@ -22,4 +22,6 @@
     <color name="brand_gradient_start">#FFFFEFE2</color>
     <color name="brand_gradient_end">#FFFFF9F4</color>
     <color name="brand_badge">#D9412E</color>
+    <color name="light_gray">#FFD8D8D8</color>
+    <color name="text_gray">#FF6B6B6B</color>
 </resources>

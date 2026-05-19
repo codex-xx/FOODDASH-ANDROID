@@ -228,7 +228,7 @@ public class ProfileActivity extends AppCompatActivity {
 
     private void updateNotificationsTabCount() {
         if (tabNotificationsButton == null) return;
-        int count = getNotificationCountFromPrefs();
+        int count = NotificationStore.getUnreadGroupCount(this);
         if (count <= 0) {
             tabNotificationsButton.setText("Notifications");
             return;
@@ -238,13 +238,7 @@ public class ProfileActivity extends AppCompatActivity {
     }
 
     private int getNotificationCountFromPrefs() {
-        SharedPreferences prefs = getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
-        try {
-            JSONArray array = new JSONArray(prefs.getString("notification_history_json", "[]"));
-            return array.length();
-        } catch (Exception ignored) {
-            return 0;
-        }
+        return NotificationStore.getUnreadGroupCount(this);
     }
 
     private int getCartItemCountFromPrefs() {
@@ -283,10 +277,13 @@ public class ProfileActivity extends AppCompatActivity {
         AuthSessionManager.clearSession(this);
         SharedPreferences prefs = getApplicationContext().getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
 
-        // Preserve notification history across customer logout.
         String notificationHistory = prefs.getString("notification_history_json", "[]");
+        String dismissedNotificationKeys = prefs.getString("dismissed_notification_keys_json", "[]");
         prefs.edit().clear().apply();
-        prefs.edit().putString("notification_history_json", notificationHistory).apply();
+        prefs.edit()
+                .putString("notification_history_json", notificationHistory)
+                .putString("dismissed_notification_keys_json", dismissedNotificationKeys)
+                .apply();
 
         startActivity(new Intent(this, LoginActivity.class));
         finish();
