@@ -1,5 +1,6 @@
 package com.example.fooddash;
 
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.text.Editable;
@@ -50,7 +51,13 @@ public class RestaurantMenuActivity extends AppCompatActivity {
     private TextView partnerRestaurantsTitleTextView;
     private TextView emptyTextView;
     private EditText searchEditText;
-    private Button btnBackToDashboard;
+    private Button tabHomeButton;
+    private Button tabOrdersButton;
+    private Button tabCartButton;
+    private Button tabNotificationsButton;
+    private Button tabProfileButton;
+    private TextView tabCartBadgeTextView;
+    private TextView tabNotificationsBadgeTextView;
     private RequestQueue requestQueue;
     private final List<Restaurant> restaurantList = new ArrayList<>();
     private final List<Product> allProductList = new ArrayList<>();
@@ -82,7 +89,14 @@ public class RestaurantMenuActivity extends AppCompatActivity {
         partnerRestaurantsTitleTextView = findViewById(R.id.restaurantProductsPartnerTitle);
         emptyTextView = findViewById(R.id.restaurantProductsEmptyTextView);
         searchEditText = findViewById(R.id.restaurantProductsSearchEditText);
-        btnBackToDashboard = findViewById(R.id.restaurantProductsBackButton);
+
+        tabHomeButton = findViewById(R.id.tabHomeButton);
+        tabOrdersButton = findViewById(R.id.tabOrdersButton);
+        tabCartButton = findViewById(R.id.tabCartButton);
+        tabNotificationsButton = findViewById(R.id.tabNotificationsButton);
+        tabProfileButton = findViewById(R.id.tabProfileButton);
+        tabCartBadgeTextView = findViewById(R.id.tabCartBadgeTextView);
+        tabNotificationsBadgeTextView = findViewById(R.id.tabNotificationsBadgeTextView);
 
         restaurantsRecyclerView.setLayoutManager(new    LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
         restaurantsRecyclerView.setNestedScrollingEnabled(false);
@@ -102,7 +116,10 @@ public class RestaurantMenuActivity extends AppCompatActivity {
         restaurantName = getIntent().getStringExtra("restaurant_name");
         if (TextUtils.isEmpty(restaurantName)) restaurantName = "Restaurant Menu";
         titleTextView.setText(String.format(Locale.US, "%s - Menu", restaurantName));
-        btnBackToDashboard.setOnClickListener(v -> finish());
+
+        setupBottomNavigation();
+        updateCartBadge();
+        updateNotificationsTabCount();
 
         if (searchEditText != null) {
             searchEditText.addTextChangedListener(new TextWatcher() {
@@ -133,12 +150,18 @@ public class RestaurantMenuActivity extends AppCompatActivity {
                     applyRestaurantData(restaurants != null ? restaurants : new JSONArray());
                 },
                 error -> {
-                    restaurantList.clear();
-                    restaurantAdapter.notifyDataSetChanged();
-                    if (partnerRestaurantsTitleTextView != null) {
-                        partnerRestaurantsTitleTextView.setVisibility(View.GONE);
-                    }
-                    restaurantsRecyclerView.setVisibility(View.GONE);
+                    JsonArrayRequest legacyRequest = new JsonArrayRequest(Request.Method.GET, ALL_RESTAURANTS_ENDPOINT, null,
+                            this::applyRestaurantData,
+                            legacyError -> {
+                                restaurantList.clear();
+                                restaurantAdapter.notifyDataSetChanged();
+                                if (partnerRestaurantsTitleTextView != null) {
+                                    partnerRestaurantsTitleTextView.setVisibility(View.GONE);
+                                }
+                                restaurantsRecyclerView.setVisibility(View.GONE);
+                            }
+                    );
+                    requestQueue.add(legacyRequest);
                 }
         );
         requestQueue.add(request);
@@ -163,6 +186,10 @@ public class RestaurantMenuActivity extends AppCompatActivity {
         }
         restaurantsRecyclerView.setVisibility(restaurantList.isEmpty() ? View.GONE : View.VISIBLE);
         restaurantAdapter.notifyDataSetChanged();
+
+        if (selectedRestaurantPosition != -1) {
+            restaurantsRecyclerView.scrollToPosition(selectedRestaurantPosition);
+        }
     }
 
     private void fetchMenu() {
@@ -248,6 +275,94 @@ public class RestaurantMenuActivity extends AppCompatActivity {
         }
         restaurantAdapter.notifyDataSetChanged();
         fetchMenu();
+    }
+
+    private void setupBottomNavigation() {
+        highlightBottomTab(null); // Menu is not a primary tab
+
+        if (tabHomeButton != null) {
+            tabHomeButton.setOnClickListener(v -> {
+                Intent intent = new Intent(this, CustomerDashboard.class);
+                intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                startActivity(intent);
+                finish();
+            });
+        }
+
+        if (tabOrdersButton != null) {
+            tabOrdersButton.setOnClickListener(v -> {
+                startActivity(new Intent(this, OrderTrackingActivity.class));
+            });
+        }
+
+        if (tabCartButton != null) {
+            tabCartButton.setOnClickListener(v -> {
+                openCartFromPrefs();
+            });
+        }
+
+        if (tabNotificationsButton != null) {
+            tabNotificationsButton.setOnClickListener(v -> {
+                startActivity(new Intent(this, NotificationActivity.class));
+            });
+        }
+
+        if (tabProfileButton != null) {
+            tabProfileButton.setOnClickListener(v -> {
+                startActivity(new Intent(this, ProfileActivity.class));
+            });
+        }
+    }
+
+    private void highlightBottomTab(Button selected) {
+        applyBottomTabStyle(tabHomeButton, selected == tabHomeButton);
+        applyBottomTabStyle(tabOrdersButton, selected == tabOrdersButton);
+        applyBottomTabStyle(tabCartButton, selected == tabCartButton);
+        applyBottomTabStyle(tabNotificationsButton, selected == tabNotificationsButton);
+        applyBottomTabStyle(tabProfileButton, selected == tabProfileButton);
+    }
+
+    private void applyBottomTabStyle(Button tab, boolean isSelected) {
+        if (tab == null) return;
+        if (isSelected) {
+            tab.setBackgroundResource(R.drawable.bottom_nav_tab_selected);
+            tab.setTextColor(getResources().getColor(R.color.white));
+        } else {
+            tab.setBackgroundResource(R.drawable.bottom_nav_tab_unselected);
+            tab.setTextColor(getResources().getColor(R.color.black));
+        }
+    }
+
+    private void updateCartBadge() {
+        if (tabCartBadgeTextView == null) return;
+        int count = 0;
+        for (CartEntry e : globalCart.values()) count += e.quantity;
+        if (count <= 0) {
+            tabCartBadgeTextView.setVisibility(View.GONE);
+            return;
+        }
+        tabCartBadgeTextView.setVisibility(View.VISIBLE);
+        tabCartBadgeTextView.setText(count > 99 ? "99+" : String.valueOf(count));
+    }
+
+    private void updateNotificationsTabCount() {
+        int count = NotificationStore.getUnreadGroupCount(this);
+        if (tabNotificationsBadgeTextView != null) {
+            if (count <= 0) {
+                tabNotificationsBadgeTextView.setVisibility(View.GONE);
+            } else {
+                tabNotificationsBadgeTextView.setVisibility(View.VISIBLE);
+                tabNotificationsBadgeTextView.setText(count > 99 ? "99+" : String.valueOf(count));
+            }
+        }
+    }
+
+    private void openCartFromPrefs() {
+        SharedPreferences prefs = getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
+        String cartJson = prefs.getString("global_cart_json", "[]");
+        Intent intent = new Intent(this, CartActivity.class);
+        intent.putExtra("cart_items_json", cartJson);
+        startActivity(intent);
     }
 
     private int findRestaurantPosition(int targetRestaurantId) {
@@ -340,6 +455,7 @@ public class RestaurantMenuActivity extends AppCompatActivity {
         if (product.quantity <= 0) globalCart.remove(key);
         else globalCart.put(key, new CartEntry(product.restaurantId, product.restaurantName, product.id, product.name, product.price, product.quantity));
         saveGlobalCart();
+        updateCartBadge();
     }
 
     private class RestaurantAdapter extends RecyclerView.Adapter<RestaurantAdapter.ViewHolder> {

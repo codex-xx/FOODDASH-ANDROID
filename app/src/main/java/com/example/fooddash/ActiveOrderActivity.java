@@ -43,7 +43,7 @@ public class ActiveOrderActivity extends AppCompatActivity {
     private TextView activeOrderIdText, activeCustomerName, activeCustomerContact, activeDeliveryAddress;
     private TextView activeRestaurantName, activeOrderItems, activeOrderStatus, activePaymentMethod;
     // driver UI moved to customer order listing (OrderTrackingActivity)
-    private Button btnPreparing, btnReady, btnArrived, btnPickedUp, btnOnTheWay, btnDelivered, btnBackToDashboard;
+    private Button btnPreparing, btnReady, btnArrived, btnPickedUp, btnOnTheWay, btnDelivered;
 
     private RequestQueue requestQueue;
     private JSONObject activeOrder;
@@ -79,7 +79,6 @@ public class ActiveOrderActivity extends AppCompatActivity {
         btnPickedUp = findViewById(R.id.btnPickedUp);
         btnOnTheWay = findViewById(R.id.btnOnTheWay);
         btnDelivered = findViewById(R.id.btnDelivered);
-        btnBackToDashboard = findViewById(R.id.btnBackToDashboard);
 
         String orderJson = getIntent().getStringExtra("order_json");
         if (orderJson != null) {
@@ -102,8 +101,6 @@ public class ActiveOrderActivity extends AppCompatActivity {
         if (btnPickedUp != null) btnPickedUp.setOnClickListener(v -> updateOrderStatus(Constants.STATUS_PICKED_UP));
         if (btnOnTheWay != null) btnOnTheWay.setOnClickListener(v -> updateOrderStatus(Constants.STATUS_OUT_FOR_DELIVERY));
         if (btnDelivered != null) btnDelivered.setOnClickListener(v -> updateOrderStatus(Constants.STATUS_DELIVERED));
-        
-        btnBackToDashboard.setOnClickListener(v -> finish());
     }
 
     @Override

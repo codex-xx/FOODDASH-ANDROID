@@ -111,22 +111,43 @@
                 android:visibility="gone" />
         </FrameLayout>
 
-        <Button
-            android:id="@+id/tabNotificationsButton"
+        <FrameLayout
+            android:id="@+id/tabNotificationsContainer"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_marginEnd="6dp"
-            android:layout_weight="1"
-            android:background="@drawable/bottom_nav_tab_unselected"
-            android:fontFamily="sans-serif-medium"
-            android:minHeight="64dp"
-            android:padding="6dp"
-            android:text="Notif"
-            android:drawableTop="@drawable/ic_notifications"
-            android:textAllCaps="false"
-            android:textColor="@color/black"
-            android:textSize="11sp"
-            android:gravity="center" />
+            android:layout_weight="1">
+
+            <Button
+                android:id="@+id/tabNotificationsButton"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@drawable/bottom_nav_tab_unselected"
+                android:drawableTop="@drawable/ic_notifications"
+                android:fontFamily="sans-serif-medium"
+                android:gravity="center"
+                android:minHeight="64dp"
+                android:padding="6dp"
+                android:text="Notif"
+                android:textAllCaps="false"
+                android:textColor="@color/black"
+                android:textSize="11sp" />
+
+            <TextView
+                android:id="@+id/tabNotificationsBadgeTextView"
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:layout_gravity="end|top"
+                android:layout_marginTop="-2dp"
+                android:layout_marginEnd="-2dp"
+                android:background="@drawable/cart_badge_background"
+                android:gravity="center"
+                android:text="0"
+                android:textColor="@color/white"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
+        </FrameLayout>
 
         <Button
             android:id="@+id/tabProfileButton"

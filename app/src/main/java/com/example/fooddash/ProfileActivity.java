@@ -3,6 +3,7 @@ package com.example.fooddash;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Bundle;
+import android.view.View;
 import android.text.InputType;
 import android.text.TextUtils;
 import android.widget.Button;
@@ -32,6 +33,7 @@ public class ProfileActivity extends AppCompatActivity {
     private Button tabNotificationsButton;
     private Button tabProfileButton;
     private TextView tabCartBadgeTextView;
+    private TextView tabNotificationsBadgeTextView;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -61,6 +63,7 @@ public class ProfileActivity extends AppCompatActivity {
         tabNotificationsButton = findViewById(R.id.tabNotificationsButton);
         tabProfileButton = findViewById(R.id.tabProfileButton);
         tabCartBadgeTextView = findViewById(R.id.tabCartBadgeTextView);
+        tabNotificationsBadgeTextView = findViewById(R.id.tabNotificationsBadgeTextView);
 
         setupBottomNavigation();
         bindProfileData();
@@ -227,14 +230,15 @@ public class ProfileActivity extends AppCompatActivity {
     }
 
     private void updateNotificationsTabCount() {
-        if (tabNotificationsButton == null) return;
         int count = NotificationStore.getUnreadGroupCount(this);
-        if (count <= 0) {
-            tabNotificationsButton.setText("Notifications");
-            return;
+        if (tabNotificationsBadgeTextView != null) {
+            if (count <= 0) {
+                tabNotificationsBadgeTextView.setVisibility(View.GONE);
+            } else {
+                tabNotificationsBadgeTextView.setVisibility(View.VISIBLE);
+                tabNotificationsBadgeTextView.setText(count > 99 ? "99+" : String.valueOf(count));
+            }
         }
-        String badge = count > 99 ? "99+" : String.valueOf(count);
-        tabNotificationsButton.setText("Notif (" + badge + ")");
     }
 
     private int getNotificationCountFromPrefs() {

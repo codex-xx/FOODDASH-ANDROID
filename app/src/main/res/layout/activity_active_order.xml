@@ -196,13 +196,5 @@
             android:text="Mark as Delivered"
             android:visibility="gone" />
 
-        <Button
-            android:id="@+id/btnBackToDashboard"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
-            android:text="Back to Dashboard"
-            android:backgroundTint="@color/secondary_dark_gray" />
-
     </LinearLayout>
 </ScrollView>

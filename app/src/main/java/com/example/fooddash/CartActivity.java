@@ -36,6 +36,7 @@ public class CartActivity extends AppCompatActivity {
     private Button tabNotificationsButton;
     private Button tabProfileButton;
     private TextView tabCartBadgeTextView;
+    private TextView tabNotificationsBadgeTextView;
     private int restaurantId = -1;
     private String cartItemsJson = "[]";
 
@@ -54,13 +55,13 @@ public class CartActivity extends AppCompatActivity {
         subtotalTextView = findViewById(R.id.subtotalTextView);
         cartGroupsContainer = findViewById(R.id.cartGroupsContainer);
         btnProceedCheckout = findViewById(R.id.btnProceedCheckout);
-        Button btnBackToMenu = findViewById(R.id.btnBackToMenu);
         tabHomeButton = findViewById(R.id.tabHomeButton);
         tabOrdersButton = findViewById(R.id.tabOrdersButton);
         tabCartButton = findViewById(R.id.tabCartButton);
         tabNotificationsButton = findViewById(R.id.tabNotificationsButton);
         tabProfileButton = findViewById(R.id.tabProfileButton);
         tabCartBadgeTextView = findViewById(R.id.tabCartBadgeTextView);
+        tabNotificationsBadgeTextView = findViewById(R.id.tabNotificationsBadgeTextView);
 
         restaurantId = getIntent().getIntExtra("restaurant_id", -1);
         cartItemsJson = getIntent().getStringExtra("cart_items_json");
@@ -89,8 +90,6 @@ public class CartActivity extends AppCompatActivity {
             intent.putExtra("cart_items_json", selectedItemsJson.toString());
             startActivity(intent);
         });
-
-        btnBackToMenu.setOnClickListener(v -> finish());
     }
 
     @Override
@@ -406,14 +405,15 @@ public class CartActivity extends AppCompatActivity {
     }
 
     private void updateNotificationsTabCount() {
-        if (tabNotificationsButton == null) return;
         int count = NotificationStore.getUnreadGroupCount(this);
-        if (count <= 0) {
-            tabNotificationsButton.setText("Notifications");
-            return;
+        if (tabNotificationsBadgeTextView != null) {
+            if (count <= 0) {
+                tabNotificationsBadgeTextView.setVisibility(View.GONE);
+            } else {
+                tabNotificationsBadgeTextView.setVisibility(View.VISIBLE);
+                tabNotificationsBadgeTextView.setText(count > 99 ? "99+" : String.valueOf(count));
+            }
         }
-        String badge = count > 99 ? "99+" : String.valueOf(count);
-        tabNotificationsButton.setText("Notif (" + badge + ")");
     }
 
     private int getNotificationCountFromPrefs() {

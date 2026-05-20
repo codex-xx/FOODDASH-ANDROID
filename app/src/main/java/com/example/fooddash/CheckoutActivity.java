@@ -54,7 +54,6 @@ public class CheckoutActivity extends AppCompatActivity {
     private TextView checkoutProcessingMessageTextView;
     private ProgressBar checkoutPaymentProgress;
     private Button btnConfirmPlaceOrder;
-    private Button btnBackToCart;
 
     private String pendingPaymentMethod = "cod";
     private String pendingAddress = "";
@@ -98,7 +97,6 @@ public class CheckoutActivity extends AppCompatActivity {
         checkoutProcessingMessageTextView = findViewById(R.id.checkoutProcessingMessageTextView);
         checkoutPaymentProgress = findViewById(R.id.checkoutPaymentProgress);
         btnConfirmPlaceOrder = findViewById(R.id.btnConfirmPlaceOrder);
-        btnBackToCart = findViewById(R.id.btnBackToCart);
 
         grandSubtotal = getIntent().getDoubleExtra("subtotal", 0.0);
         cartItemsJson = getIntent().getStringExtra("cart_items_json");
@@ -121,7 +119,6 @@ public class CheckoutActivity extends AppCompatActivity {
             if (isCheckoutInProgress) return;
             placeOrders();
         });
-        btnBackToCart.setOnClickListener(v -> finish());
     }
 
     private void buildOrderGroups() {
@@ -503,7 +500,6 @@ public class CheckoutActivity extends AppCompatActivity {
     private void setCheckoutUiState(boolean processing, String message) {
         isCheckoutInProgress = processing;
         btnConfirmPlaceOrder.setEnabled(!processing);
-        btnBackToCart.setEnabled(!processing);
         checkoutAddressEditText.setEnabled(!processing);
         checkoutVehicleRadioGroup.setEnabled(!processing);
         checkoutPaymentRadioGroup.setEnabled(!processing);
