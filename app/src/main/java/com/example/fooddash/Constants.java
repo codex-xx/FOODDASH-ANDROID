@@ -56,7 +56,7 @@ public class Constants {
     public static final String DELIVERY_TRICYCLE = "tricycle";
     public static final String DELIVERY_CAB = "cab";
 
-    public static final double FEE_MOTORCYCLE = 39.00;
-    public static final double FEE_TRICYCLE = 69.00;
-    public static final double FEE_CAB = 109.00;
+    public static final double FEE_MOTORCYCLE = 0.00;
+    public static final double FEE_TRICYCLE = 0.00;
+    public static final double FEE_CAB = 0.00;
 }

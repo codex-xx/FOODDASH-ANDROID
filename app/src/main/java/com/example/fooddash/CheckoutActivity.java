@@ -55,6 +55,14 @@ public class CheckoutActivity extends AppCompatActivity {
     private ProgressBar checkoutPaymentProgress;
     private Button btnConfirmPlaceOrder;
 
+    private Button tabHomeButton;
+    private Button tabOrdersButton;
+    private Button tabCartButton;
+    private Button tabNotificationsButton;
+    private Button tabProfileButton;
+    private TextView tabCartBadgeTextView;
+    private TextView tabNotificationsBadgeTextView;
+
     private String pendingPaymentMethod = "cod";
     private String pendingAddress = "";
     private String pendingDeliveryType = Constants.DELIVERY_MOTORCYCLE;
@@ -70,8 +78,11 @@ public class CheckoutActivity extends AppCompatActivity {
                 }
 
                 setCheckoutUiState(false, "");
-                if (!placedOrderIds.isEmpty()) {
+                if (!placedOrderIds.isEmpty() && !"gcash".equalsIgnoreCase(pendingPaymentMethod)) {
                     showPaymentRetryDialog();
+                } else if (!placedOrderIds.isEmpty() && "gcash".equalsIgnoreCase(pendingPaymentMethod)) {
+                    // Just show a simple toast for GCash cancellation instead of a persistent dialog
+                    Toast.makeText(this, "GCash payment was cancelled. You can try again from the tracking screen later.", Toast.LENGTH_LONG).show();
                 } else {
                     Toast.makeText(this, "Payment failed. Please try again.", Toast.LENGTH_SHORT).show();
                 }
@@ -97,6 +108,18 @@ public class CheckoutActivity extends AppCompatActivity {
         checkoutProcessingMessageTextView = findViewById(R.id.checkoutProcessingMessageTextView);
         checkoutPaymentProgress = findViewById(R.id.checkoutPaymentProgress);
         btnConfirmPlaceOrder = findViewById(R.id.btnConfirmPlaceOrder);
+
+        tabHomeButton = findViewById(R.id.tabHomeButton);
+        tabOrdersButton = findViewById(R.id.tabOrdersButton);
+        tabCartButton = findViewById(R.id.tabCartButton);
+        tabNotificationsButton = findViewById(R.id.tabNotificationsButton);
+        tabProfileButton = findViewById(R.id.tabProfileButton);
+        tabCartBadgeTextView = findViewById(R.id.tabCartBadgeTextView);
+        tabNotificationsBadgeTextView = findViewById(R.id.tabNotificationsBadgeTextView);
+
+        setupBottomNavigation();
+        updateCartTabBadge();
+        updateNotificationsTabCount();
 
         grandSubtotal = getIntent().getDoubleExtra("subtotal", 0.0);
         cartItemsJson = getIntent().getStringExtra("cart_items_json");
@@ -189,7 +212,6 @@ public class CheckoutActivity extends AppCompatActivity {
 
     private String getSelectedPaymentMethod() {
         int checkedId = checkoutPaymentRadioGroup.getCheckedRadioButtonId();
-        if (checkedId == R.id.checkoutRadioMaya) return "maya";
         if (checkedId == R.id.checkoutRadioCod) return "cod";
         return "gcash";
     }
@@ -268,7 +290,6 @@ public class CheckoutActivity extends AppCompatActivity {
                     successfulGroupCount++;
                     int legacyId = extractOrderIdFromLegacyResponse(response);
                     addPlacedOrderId(legacyId);
-                    removeItemsFromGlobalCart(group.items);
                     processGroup(index + 1, userId, token, address, type, fee, paymentMethod);
                 },
                 error -> {
@@ -334,8 +355,11 @@ public class CheckoutActivity extends AppCompatActivity {
     private void finalizeCheckout() {
         if (successfulGroupCount > 0) {
             if ("cod".equalsIgnoreCase(pendingPaymentMethod)) {
+                clearCartAfterSuccessfulCheckout();
                 Toast.makeText(this, "Order(s) placed successfully!", Toast.LENGTH_LONG).show();
                 openPostCheckoutOrderScreen();
+            } else if ("gcash".equalsIgnoreCase(pendingPaymentMethod)) {
+                launchGcashPayment();
             } else {
                 requestSimulatedPaymentCheckoutUrl();
             }
@@ -343,6 +367,21 @@ public class CheckoutActivity extends AppCompatActivity {
             setCheckoutUiState(false, "");
             Toast.makeText(this, "Failed to place orders. Please try again.", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    private void clearCartAfterSuccessfulCheckout() {
+        for (OrderGroup group : orderGroups) {
+            removeItemsFromGlobalCart(group.items);
+        }
+    }
+
+    private void launchGcashPayment() {
+        Intent intent = new Intent(this, GcashPaymentActivity.class);
+        intent.putExtra(GcashPaymentActivity.EXTRA_AMOUNT, getGrandTotal(pendingDeliveryFee));
+        if (!placedOrderIds.isEmpty()) {
+            intent.putExtra("order_id", placedOrderIds.get(0));
+        }
+        paymentResultLauncher.launch(intent);
     }
 
     private void requestSimulatedPaymentCheckoutUrl() {
@@ -414,6 +453,7 @@ public class CheckoutActivity extends AppCompatActivity {
             .putString("last_payment_method", pendingPaymentMethod)
             .apply();
 
+        clearCartAfterSuccessfulCheckout();
         Toast.makeText(this, "Payment successful. Order marked as paid.", Toast.LENGTH_LONG).show();
         openPostCheckoutOrderScreen();
     }
@@ -507,6 +547,74 @@ public class CheckoutActivity extends AppCompatActivity {
         findViewById(R.id.checkoutProcessingContainer).setVisibility(processing ? View.VISIBLE : View.GONE);
         if (!TextUtils.isEmpty(message)) {
             checkoutProcessingMessageTextView.setText(message);
+        }
+    }
+
+    private void setupBottomNavigation() {
+        if (tabHomeButton != null) {
+            tabHomeButton.setOnClickListener(v -> {
+                startActivity(new Intent(this, CustomerDashboard.class));
+                finish();
+            });
+        }
+
+        if (tabOrdersButton != null) {
+            tabOrdersButton.setOnClickListener(v -> {
+                startActivity(new Intent(this, OrderTrackingActivity.class));
+                finish();
+            });
+        }
+
+        if (tabCartButton != null) {
+            tabCartButton.setOnClickListener(v -> {
+                // Already in checkout flow, clicking cart could go back to CartActivity
+                finish();
+            });
+        }
+
+        if (tabNotificationsButton != null) {
+            tabNotificationsButton.setOnClickListener(v -> {
+                startActivity(new Intent(this, NotificationActivity.class));
+            });
+        }
+
+        if (tabProfileButton != null) {
+            tabProfileButton.setOnClickListener(v -> {
+                startActivity(new Intent(this, ProfileActivity.class));
+            });
+        }
+    }
+
+    private void updateCartTabBadge() {
+        if (tabCartBadgeTextView == null) return;
+        SharedPreferences prefs = getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
+        try {
+            JSONArray cart = new JSONArray(prefs.getString("global_cart_json", "[]"));
+            int count = 0;
+            for (int i = 0; i < cart.length(); i++) {
+                JSONObject obj = cart.optJSONObject(i);
+                if (obj != null) count += obj.optInt("quantity", 0);
+            }
+            if (count <= 0) {
+                tabCartBadgeTextView.setVisibility(View.GONE);
+            } else {
+                tabCartBadgeTextView.setVisibility(View.VISIBLE);
+                tabCartBadgeTextView.setText(count > 99 ? "99+" : String.valueOf(count));
+            }
+        } catch (Exception e) {
+            tabCartBadgeTextView.setVisibility(View.GONE);
+        }
+    }
+
+    private void updateNotificationsTabCount() {
+        int count = NotificationStore.getUnreadGroupCount(this);
+        if (tabNotificationsBadgeTextView != null) {
+            if (count <= 0) {
+                tabNotificationsBadgeTextView.setVisibility(View.GONE);
+            } else {
+                tabNotificationsBadgeTextView.setVisibility(View.VISIBLE);
+                tabNotificationsBadgeTextView.setText(count > 99 ? "99+" : String.valueOf(count));
+            }
         }
     }
 

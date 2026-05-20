@@ -7,6 +7,14 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
+    <queries>
+        <package android:name="com.globe.gcash.android" />
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="gcash" />
+        </intent>
+    </queries>
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -32,6 +40,7 @@
         <activity android:name=".CartActivity" android:exported="false"/>
         <activity android:name=".CheckoutActivity" android:exported="false"/>
         <activity android:name=".PaymentSimulationActivity" android:exported="false"/>
+        <activity android:name=".GcashPaymentActivity" android:exported="false"/>
         <activity android:name=".OrderTrackingActivity" android:exported="false"/>
         <activity android:name=".DriverDashboard" android:exported="false"/>
         <activity android:name=".OrderHistoryActivity" android:exported="false"/>
