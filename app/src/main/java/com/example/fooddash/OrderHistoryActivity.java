@@ -15,10 +15,10 @@ import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
-import com.android.volley.Request;
-import com.android.volley.RequestQueue;
-import com.android.volley.toolbox.JsonObjectRequest;
-import com.android.volley.toolbox.Volley;
+import okhttp3.ResponseBody;
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Response;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -36,7 +36,7 @@ public class OrderHistoryActivity extends AppCompatActivity {
     private static final long POLL_MS = 10000L;
 
     private final Handler pollingHandler = new Handler(Looper.getMainLooper());
-    private RequestQueue requestQueue;
+    private ApiService apiService;
 
     private LinearLayout historyContainer;
     private Button tabHomeButton;
@@ -58,7 +58,7 @@ public class OrderHistoryActivity extends AppCompatActivity {
             return;
         }
 
-        requestQueue = Volley.newRequestQueue(this);
+        apiService = RetrofitClient.getApiService();
 
         historyContainer = findViewById(R.id.historyContainer);
         tabHomeButton = findViewById(R.id.tabHomeButton);
@@ -109,34 +109,47 @@ public class OrderHistoryActivity extends AppCompatActivity {
             return;
         }
 
-        fetchOrdersFromEndpoint(Constants.URL_ORDERS + "?user_id=" + userId, false);
-        fetchOrdersFromEndpoint(Constants.URL_GET_ORDERS_LEGACY + "?user_id=" + userId, true);
-    }
-
-    private void fetchOrdersFromEndpoint(String url, boolean isLegacy) {
-        JsonObjectRequest request = new JsonObjectRequest(
-                Request.Method.GET,
-                url,
-                null,
-                response -> {
-                    List<JSONObject> orders = extractOrders(response);
+        apiService.getOrders(userId).enqueue(new Callback<ResponseBody>() {
+            @Override
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                try {
+                    String body = response.body() != null ? response.body().string() : "{}";
+                    JSONObject jsonResponse = new JSONObject(body);
+                    List<JSONObject> orders = extractOrders(jsonResponse);
                     if (!orders.isEmpty()) {
                         renderHistory(orders);
                     } else if (historyContainer.getChildCount() == 0) {
                         showEmptyMessage("No order history found.");
                     }
-                },
-                error -> {
-                    if (isLegacy) Log.e(TAG, "Failed to poll legacy orders: " + error.toString());
-                    if (historyContainer.getChildCount() == 0) {
-                        showEmptyMessage("No order history found.");
-                    }
+                } catch (Exception e) {
+                    onFailure(call, e);
                 }
-        ) {
+            }
+
             @Override
-            public Map<String, String> getHeaders() { return buildAuthHeaders(); }
-        };
-        requestQueue.add(request);
+            public void onFailure(Call<ResponseBody> call, Throwable t) {
+                if (historyContainer.getChildCount() == 0) {
+                    showEmptyMessage("No order history found.");
+                }
+            }
+        });
+
+        apiService.getOrdersLegacy(userId).enqueue(new Callback<ResponseBody>() {
+            @Override
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                try {
+                    String body = response.body() != null ? response.body().string() : "{}";
+                    JSONObject jsonResponse = new JSONObject(body);
+                    List<JSONObject> orders = extractOrders(jsonResponse);
+                    if (!orders.isEmpty()) {
+                        renderHistory(orders);
+                    }
+                } catch (Exception ignored) {}
+            }
+
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) {}
+        });
     }
 
     private List<JSONObject> extractOrders(JSONObject response) {

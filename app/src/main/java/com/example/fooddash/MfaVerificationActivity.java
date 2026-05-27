@@ -11,10 +11,13 @@ import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
-import com.android.volley.DefaultRetryPolicy;
-import com.android.volley.Request;
-import com.android.volley.toolbox.JsonObjectRequest;
-import com.android.volley.toolbox.Volley;
+import java.util.HashMap;
+import java.util.Map;
+
+import okhttp3.ResponseBody;
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Response;
 
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -26,6 +29,7 @@ public class MfaVerificationActivity extends AppCompatActivity {
 
     private EditText mfaCodeEdit;
     private Button verifyMfaButton;
+    private ApiService apiService;
 
     private String email = "";
     private String role = "customer";
@@ -38,6 +42,7 @@ public class MfaVerificationActivity extends AppCompatActivity {
 
         mfaCodeEdit = findViewById(R.id.mfaCodeEdit);
         verifyMfaButton = findViewById(R.id.btnVerifyMfa);
+        apiService = RetrofitClient.getApiService();
 
         Intent intent = getIntent();
         if (intent != null) {
@@ -56,58 +61,62 @@ public class MfaVerificationActivity extends AppCompatActivity {
             return;
         }
 
-        JSONObject payload = new JSONObject();
-        try {
-            payload.put("email", email);
-            payload.put("code", code);
-            payload.put("otp", code);
-            if (!TextUtils.isEmpty(challengeToken)) {
-                payload.put("mfa_token", challengeToken);
-                payload.put("challenge_token", challengeToken);
-                payload.put("challenge_id", challengeToken);
-            }
-        } catch (JSONException exception) {
-            Log.e(TAG, "Failed to build MFA payload", exception);
-            Toast.makeText(this, "Could not build MFA request", Toast.LENGTH_SHORT).show();
-            return;
+        Map<String, String> fields = new HashMap<>();
+        fields.put("email", email);
+        fields.put("code", code);
+        fields.put("otp", code);
+        if (!TextUtils.isEmpty(challengeToken)) {
+            fields.put("mfa_token", challengeToken);
+            fields.put("challenge_token", challengeToken);
+            fields.put("challenge_id", challengeToken);
         }
 
-        sendMfaRequest(Constants.URL_MFA_VERIFY, payload, true);
+        sendMfaRequest(Constants.URL_MFA_VERIFY, fields, true);
     }
 
-    private void sendMfaRequest(String url, JSONObject payload, boolean allowFallback) {
-        JsonObjectRequest request = new JsonObjectRequest(
-                Request.Method.POST,
-                url,
-                payload,
-                this::onMfaSuccess,
-                error -> {
-                    if (allowFallback && Constants.URL_MFA_VERIFY.equals(url)) {
-                        sendMfaRequest(Constants.URL_MFA_VERIFY_FALLBACK, payload, false);
-                        return;
-                    }
+    private void sendMfaRequest(String url, Map<String, String> fields, boolean allowFallback) {
+        Call<ResponseBody> call = Constants.URL_MFA_VERIFY.equals(url) ? 
+                                 apiService.verifyMfa(fields) : apiService.verifyMfaFallback(fields);
+        
+        call.enqueue(new Callback<ResponseBody>() {
+            @Override
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                try {
+                    String responseBody = response.body() != null ? response.body().string() : 
+                                         (response.errorBody() != null ? response.errorBody().string() : "");
+                    responseBody = responseBody.trim();
 
-                    String message = "MFA verification failed";
-                    if (error.networkResponse != null && error.networkResponse.data != null) {
-                        try {
-                            String responseBody = new String(error.networkResponse.data, java.nio.charset.StandardCharsets.UTF_8);
-                            JSONObject json = new JSONObject(responseBody);
-                            message = json.optString("message", message);
-                        } catch (Exception parseException) {
-                            Log.e(TAG, "Failed to parse MFA error", parseException);
-                        }
+                    JSONObject jsonResponse;
+                    if (responseBody.startsWith("{")) {
+                        jsonResponse = new JSONObject(responseBody);
+                    } else {
+                        jsonResponse = new JSONObject();
+                        jsonResponse.put("success", response.isSuccessful());
+                        jsonResponse.put("message", responseBody.isEmpty() ? (response.isSuccessful() ? "MFA verified" : "MFA verification failed") : responseBody);
                     }
-                    Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+                    
+                    if (response.isSuccessful()) {
+                        onMfaSuccess(jsonResponse);
+                    } else if (allowFallback && Constants.URL_MFA_VERIFY.equals(url)) {
+                        sendMfaRequest(Constants.URL_MFA_VERIFY_FALLBACK, fields, false);
+                    } else {
+                        String message = jsonResponse.optString("message", "MFA verification failed");
+                        Toast.makeText(MfaVerificationActivity.this, message, Toast.LENGTH_LONG).show();
+                    }
+                } catch (Exception e) {
+                    onFailure(call, e);
                 }
-        );
+            }
 
-        request.setRetryPolicy(new DefaultRetryPolicy(
-                10000,
-                DefaultRetryPolicy.DEFAULT_MAX_RETRIES,
-                DefaultRetryPolicy.DEFAULT_BACKOFF_MULT
-        ));
-
-        Volley.newRequestQueue(this).add(request);
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) {
+                if (allowFallback && Constants.URL_MFA_VERIFY.equals(url)) {
+                    sendMfaRequest(Constants.URL_MFA_VERIFY_FALLBACK, fields, false);
+                } else {
+                    Toast.makeText(MfaVerificationActivity.this, "MFA verification failed", Toast.LENGTH_LONG).show();
+                }
+            }
+        });
     }
 
     private void onMfaSuccess(JSONObject response) {

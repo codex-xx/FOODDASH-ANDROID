@@ -33,13 +33,12 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
-import com.android.volley.Request;
-import com.android.volley.RequestQueue;
-import com.android.volley.Response;
-import com.android.volley.toolbox.JsonArrayRequest;
-import com.android.volley.toolbox.JsonObjectRequest;
-import com.android.volley.toolbox.Volley;
 import com.bumptech.glide.Glide;
+
+import okhttp3.ResponseBody;
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Response;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -95,7 +94,8 @@ public class CustomerDashboard extends AppCompatActivity {
     private final List<Restaurant> restaurantList = new ArrayList<>();
     private final List<SearchRestaurant> searchRestaurants = new ArrayList<>();
     private final List<SearchMenuItem> searchMenuItems = new ArrayList<>();
-    private RequestQueue requestQueue;
+    private ApiService apiService;
+    private Call<ResponseBody> searchCall;
     private int restaurantId = -1;
     private int selectedRestaurantPosition = -1;
     private int highlightedProductPosition = -1;
@@ -129,7 +129,7 @@ public class CustomerDashboard extends AppCompatActivity {
     );
 
     private static final String ORDERS_ENDPOINT = Constants.URL_ORDERS;
-    private static final String ALL_RESTAURANTS_ENDPOINT = Constants.URL_GET_ALL_RESTAURANTS;
+    private static final String ALL_RESTAURANTS_ENDPOINT = Constants.URL_RESTAURANTS;
     private static final String MENU_BY_RESTAURANT_ENDPOINT = Constants.URL_GET_MENU_BY_RESTAURANT;
     private static final String LEGACY_MENU_ENDPOINT = Constants.URL_GET_MENU_LEGACY;
     private static final String SEARCH_ENDPOINT = Constants.BASE_URL + "search.php";
@@ -205,7 +205,7 @@ public class CustomerDashboard extends AppCompatActivity {
         searchMenuItemsRecyclerView.setLayoutManager(new LinearLayoutManager(this));
         searchRestaurantsRecyclerView.setNestedScrollingEnabled(false);
         searchMenuItemsRecyclerView.setNestedScrollingEnabled(false);
-        requestQueue = Volley.newRequestQueue(this);
+        apiService = RetrofitClient.getApiService(this);
         restaurantId = getIntent().getIntExtra("restaurant_id", -1);
         loadGlobalCart();
 
@@ -363,7 +363,7 @@ public class CustomerDashboard extends AppCompatActivity {
         super.onPause();
         stopPolling();
         searchHandler.removeCallbacksAndMessages(null);
-        requestQueue.cancelAll(SEARCH_REQUEST_TAG);
+        if (searchCall != null) searchCall.cancel();
     }
 
     private void startMenuPolling() {
@@ -450,27 +450,34 @@ public class CustomerDashboard extends AppCompatActivity {
         enterSearchMode();
         loadingProgressBar.setVisibility(View.VISIBLE);
         searchNoResultsTextView.setVisibility(View.GONE);
-        requestQueue.cancelAll(SEARCH_REQUEST_TAG);
+        if (searchCall != null) searchCall.cancel();
 
-        String searchUrl = SEARCH_ENDPOINT + "?query=" + Uri.encode(query);
-        JsonObjectRequest searchRequest = new JsonObjectRequest(
-                Request.Method.GET,
-                searchUrl,
-                null,
-                response -> {
-                    if (!query.equals(lastSearchQuery)) return;
+        searchCall = apiService.search(query);
+        searchCall.enqueue(new Callback<ResponseBody>() {
+            @Override
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                if (!query.equals(lastSearchQuery)) return;
+                try {
+                    String body = response.body() != null ? response.body().string() : "{}";
+                    JSONObject jsonResponse = new JSONObject(body);
                     applySearchResults(query,
-                            findArray(response, "restaurants", "data.restaurants"),
-                            findArray(response, "menu_items", "data.menu_items"));
-                },
-                error -> {
-                    if (!query.equals(lastSearchQuery)) return;
+                            findArray(jsonResponse, "restaurants", "data.restaurants"),
+                            findArray(jsonResponse, "menu_items", "data.menu_items"));
+                } catch (Exception e) {
+                    Log.e(TAG, "Search error", e);
                     loadingProgressBar.setVisibility(View.GONE);
                     searchNoResultsTextView.setVisibility(View.VISIBLE);
                 }
-        );
-        searchRequest.setTag(SEARCH_REQUEST_TAG);
-        requestQueue.add(searchRequest);
+            }
+
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) {
+                if (call.isCanceled()) return;
+                if (!query.equals(lastSearchQuery)) return;
+                loadingProgressBar.setVisibility(View.GONE);
+                searchNoResultsTextView.setVisibility(View.VISIBLE);
+            }
+        });
     }
 
     private JSONArray findArray(JSONObject source, String... keyPaths) {
@@ -521,20 +528,24 @@ public class CustomerDashboard extends AppCompatActivity {
         final int total = restaurantList.size();
 
         for (Restaurant restaurant : restaurantList) {
-            requestMenuArrayForRestaurant(restaurant.id,
-                    response -> {
-                        collectLocalMatches(response, restaurant, normalizedQuery, localMatches, dedupe);
-                        completed[0]++;
-                        if (completed[0] >= total) {
-                            applyLocalSearchMatches(query, localMatches);
-                        }
-                    },
-                    error -> {
-                        completed[0]++;
-                        if (completed[0] >= total) {
-                            applyLocalSearchMatches(query, localMatches);
-                        }
-                    });
+            requestMenuArrayForRestaurant(restaurant.id, new MenuCallback() {
+                @Override
+                public void onSuccess(JSONArray response) {
+                    collectLocalMatches(response, restaurant, normalizedQuery, localMatches, dedupe);
+                    completed[0]++;
+                    if (completed[0] >= total) {
+                        applyLocalSearchMatches(query, localMatches);
+                    }
+                }
+
+                @Override
+                public void onError(Throwable t) {
+                    completed[0]++;
+                    if (completed[0] >= total) {
+                        applyLocalSearchMatches(query, localMatches);
+                    }
+                }
+            });
         }
     }
 
@@ -612,7 +623,7 @@ public class CustomerDashboard extends AppCompatActivity {
 
     private void navigateToRestaurantFromSearch(int targetRestaurantId) {
         if (isSearchMode) {
-            requestQueue.cancelAll(SEARCH_REQUEST_TAG);
+            if (searchCall != null) searchCall.cancel();
             lastSearchQuery = "";
             suppressSearchWatcher = true;
             searchEditText.setText("");
@@ -660,19 +671,28 @@ public class CustomerDashboard extends AppCompatActivity {
 
     private void fetchRestaurants(boolean showBlockingLoader) {
         if (showBlockingLoader) loadingProgressBar.setVisibility(View.VISIBLE);
-        JsonObjectRequest request = new JsonObjectRequest(Request.Method.GET, ALL_RESTAURANTS_ENDPOINT, null,
-                response -> {
-                    JSONArray restaurants = response.optJSONArray("restaurants");
-                    if (restaurants == null) restaurants = response.optJSONArray("data");
+        
+        apiService.getRestaurants().enqueue(new Callback<ResponseBody>() {
+            @Override
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                try {
+                    String body = response.body() != null ? response.body().string() : "{}";
+                    JSONObject jsonResponse = new JSONObject(body);
+                    JSONArray restaurants = jsonResponse.optJSONArray("restaurants");
+                    if (restaurants == null) restaurants = jsonResponse.optJSONArray("data");
                     applyRestaurantData(restaurants != null ? restaurants : new JSONArray());
-                },
-                error -> {
-                    loadingProgressBar.setVisibility(View.GONE);
-                    swipeRefreshLayout.setRefreshing(false);
-                    showEmpty("Failed to load restaurants");
+                } catch (Exception e) {
+                    onFailure(call, e);
                 }
-        );
-        requestQueue.add(request);
+            }
+
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) {
+                loadingProgressBar.setVisibility(View.GONE);
+                swipeRefreshLayout.setRefreshing(false);
+                showEmpty("Failed to load restaurants");
+            }
+        });
     }
 
     private void applyRestaurantData(JSONArray restaurants) {
@@ -896,24 +916,32 @@ public class CustomerDashboard extends AppCompatActivity {
                                      Set<String> dedupe,
                                      int[] completed,
                                      int totalRestaurants) {
-        requestMenuArrayForRestaurant(restaurant.id, response -> {
-            int added = 0;
-            for (int i = 0; i < response.length() && added < maxItems; i++) {
-                JSONObject obj = response.optJSONObject(i);
-                if (obj == null) continue;
+        requestMenuArrayForRestaurant(restaurant.id, new MenuCallback() {
+            @Override
+            public void onSuccess(JSONArray response) {
+                int added = 0;
+                for (int i = 0; i < response.length() && added < maxItems; i++) {
+                    JSONObject obj = response.optJSONObject(i);
+                    if (obj == null) continue;
 
-                int menuId = obj.optInt("id", obj.optInt("menu_item_id", -1));
-                if (menuId <= 0) continue;
+                    int menuId = obj.optInt("id", obj.optInt("menu_item_id", -1));
+                    if (menuId <= 0) continue;
 
-                String key = restaurant.id + ":" + menuId;
-                if (!dedupe.add(key)) continue;
+                    String key = restaurant.id + ":" + menuId;
+                    if (!dedupe.add(key)) continue;
 
-                Product p = parseProductFromJson(obj, restaurant.id, restaurant.name, false);
-                productList.add(p);
-                added++;
+                    Product p = parseProductFromJson(obj, restaurant.id, restaurant.name, false);
+                    productList.add(p);
+                    added++;
+                }
+                completePreviewLoad(completed, totalRestaurants);
             }
-            completePreviewLoad(completed, totalRestaurants);
-        }, error -> completePreviewLoad(completed, totalRestaurants));
+
+            @Override
+            public void onError(Throwable t) {
+                completePreviewLoad(completed, totalRestaurants);
+            }
+        });
     }
 
     private void completePreviewLoad(int[] completed, int totalRestaurants) {
@@ -931,46 +959,102 @@ public class CustomerDashboard extends AppCompatActivity {
         if (showBlockingLoader) loadingProgressBar.setVisibility(View.VISIBLE);
         final int currentResId = restaurantId;
         final String currentResName = selectedRestaurantPosition >= 0 ? restaurantList.get(selectedRestaurantPosition).name : "";
-        
-        requestMenuArrayForRestaurant(currentResId, response -> {
-            productList.clear();
-            for (int i = 0; i < response.length(); i++) {
-                JSONObject obj = response.optJSONObject(i);
-                if (obj != null) {
-                    Product p = parseProductFromJson(obj, currentResId, currentResName, false);
-                    CartEntry ce = globalCart.get("res:" + currentResId + ":id:" + p.id);
-                    if (ce != null) p.quantity = ce.quantity;
-                    productList.add(p);
-                }
-            }
-            loadingProgressBar.setVisibility(View.GONE);
-            swipeRefreshLayout.setRefreshing(false);
-            adapter.notifyDataSetChanged();
-            highlightPendingMenuItemIfNeeded();
 
-            if (productList.isEmpty()) showEmpty("No menu items available for this restaurant");
-            else hideEmpty();
-        }, error -> {
-            loadingProgressBar.setVisibility(View.GONE);
-            swipeRefreshLayout.setRefreshing(false);
-            showEmpty("Failed to load menu");
+        requestMenuArrayForRestaurant(currentResId, new MenuCallback() {
+            @Override
+            public void onSuccess(JSONArray response) {
+                productList.clear();
+                for (int i = 0; i < response.length(); i++) {
+                    JSONObject obj = response.optJSONObject(i);
+                    if (obj != null) {
+                        Product p = parseProductFromJson(obj, currentResId, currentResName, false);
+                        CartEntry ce = globalCart.get("res:" + currentResId + ":id:" + p.id);
+                        if (ce != null) p.quantity = ce.quantity;
+                        productList.add(p);
+                    }
+                }
+                loadingProgressBar.setVisibility(View.GONE);
+                swipeRefreshLayout.setRefreshing(false);
+                adapter.notifyDataSetChanged();
+                highlightPendingMenuItemIfNeeded();
+
+                if (productList.isEmpty()) showEmpty("No menu items available for this restaurant");
+                else hideEmpty();
+            }
+
+            @Override
+            public void onError(Throwable t) {
+                loadingProgressBar.setVisibility(View.GONE);
+                swipeRefreshLayout.setRefreshing(false);
+                showEmpty("Failed to load menu");
+            }
         });
     }
 
-    private void requestMenuArrayForRestaurant(int resId, Response.Listener<JSONArray> success, Response.ErrorListener error) {
-        String url = MENU_BY_RESTAURANT_ENDPOINT + "?restaurant_id=" + resId;
-        JsonObjectRequest req = new JsonObjectRequest(Request.Method.GET, url, null,
-                response -> {
-                    JSONArray menus = response.optJSONArray("menus");
-                    if (menus == null) menus = response.optJSONArray("data");
-                    success.onResponse(menus != null ? menus : new JSONArray());
-                },
-                e -> {
-                    JsonArrayRequest legacy = new JsonArrayRequest(Request.Method.GET, LEGACY_MENU_ENDPOINT + "?restaurant_id=" + resId, null, success, error);
-                    requestQueue.add(legacy);
+    interface MenuCallback {
+        void onSuccess(JSONArray array);
+        void onError(Throwable t);
+    }
+
+    private void requestMenuArrayForRestaurant(int resId, MenuCallback callback) {
+        apiService.getMenu(resId).enqueue(new Callback<ResponseBody>() {
+            @Override
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                try {
+                    String body = response.body() != null ? response.body().string() : "{}";
+                    JSONObject jsonResponse = new JSONObject(body);
+                    JSONArray menus = jsonResponse.optJSONArray("menus");
+                    if (menus == null) menus = jsonResponse.optJSONArray("data");
+                    
+                    // Fallback for direct array response
+                    if (menus == null && body.trim().startsWith("[")) {
+                        menus = new JSONArray(body);
+                    }
+                    
+                    callback.onSuccess(menus != null ? menus : new JSONArray());
+                } catch (Exception e) {
+                    onFailure(call, e);
                 }
-        );
-        requestQueue.add(req);
+            }
+
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) {
+                apiService.getMenusByRestaurant(resId).enqueue(new Callback<ResponseBody>() {
+                    @Override
+                    public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                        try {
+                            String body = response.body() != null ? response.body().string() : "{}";
+                            JSONObject jsonResponse = new JSONObject(body);
+                            JSONArray menus = jsonResponse.optJSONArray("menus");
+                            if (menus == null) menus = jsonResponse.optJSONArray("data");
+                            callback.onSuccess(menus != null ? menus : new JSONArray());
+                        } catch (Exception e) {
+                            callback.onError(e);
+                        }
+                    }
+
+                    @Override
+                    public void onFailure(Call<ResponseBody> call, Throwable t) {
+                        apiService.getMenusLegacy(resId).enqueue(new Callback<ResponseBody>() {
+                            @Override
+                            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                                try {
+                                    String body = response.body() != null ? response.body().string() : "[]";
+                                    callback.onSuccess(new JSONArray(body));
+                                } catch (Exception e) {
+                                    callback.onError(e);
+                                }
+                            }
+
+                            @Override
+                            public void onFailure(Call<ResponseBody> call, Throwable t) {
+                                callback.onError(t);
+                            }
+                        });
+                    }
+                });
+            }
+        });
     }
 
     private void fetchLatestCustomerOrder() {
@@ -978,35 +1062,45 @@ public class CustomerDashboard extends AppCompatActivity {
         int userId = prefs.getInt("user_id", -1);
         if (userId <= 0) return;
 
-        String url = Constants.URL_ORDERS + "/" + userId;
-        JsonObjectRequest req = new JsonObjectRequest(Request.Method.GET, url, null,
-                response -> {
-                    JSONArray orders = extractOrdersFromResponse(response);
-                    applyOrderTracking(findActiveOrderInList(orders));
-                },
-                error -> fetchLatestCustomerOrderLegacy(userId)
-        ) {
+        apiService.getOrders(userId).enqueue(new Callback<ResponseBody>() {
             @Override
-            public Map<String, String> getHeaders() {
-                return buildAuthHeaders();
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                try {
+                    String body = response.body() != null ? response.body().string() : "{}";
+                    JSONObject jsonResponse = new JSONObject(body);
+                    JSONArray orders = extractOrdersFromResponse(jsonResponse);
+                    applyOrderTracking(findActiveOrderInList(orders));
+                } catch (Exception e) {
+                    onFailure(call, e);
+                }
             }
-        };
-        requestQueue.add(req);
+
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) {
+                fetchLatestCustomerOrderLegacy(userId);
+            }
+        });
     }
 
     private void fetchLatestCustomerOrderLegacy(int userId) {
-        String url = Constants.URL_GET_ORDERS_LEGACY + "?user_id=" + userId;
-        JsonObjectRequest legacy = new JsonObjectRequest(Request.Method.GET, url, null,
-                response -> {
-                    JSONArray orders = extractOrdersFromResponse(response);
-                    applyOrderTracking(findActiveOrderInList(orders));
-                }, e -> {}) {
+        apiService.getOrdersLegacy(userId).enqueue(new Callback<ResponseBody>() {
             @Override
-            public Map<String, String> getHeaders() {
-                return buildAuthHeaders();
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                try {
+                    String body = response.body() != null ? response.body().string() : "{}";
+                    JSONObject jsonResponse = new JSONObject(body);
+                    JSONArray orders = extractOrdersFromResponse(jsonResponse);
+                    applyOrderTracking(findActiveOrderInList(orders));
+                } catch (Exception e) {
+                    // Fail silently
+                }
             }
-        };
-        requestQueue.add(legacy);
+
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) {
+                // Fail silently
+            }
+        });
     }
 
     private JSONArray extractOrdersFromResponse(JSONObject response) {
@@ -1185,7 +1279,7 @@ public class CustomerDashboard extends AppCompatActivity {
     private String normalizeImageUrl(String url) {
         if (url.isEmpty()) return "";
         if (url.startsWith("http")) return url;
-        return "http://" + Constants.IP_ADDRESS + "/" + url;
+        return Constants.RESOURCE_URL + url;
     }
 
     private double calculateTotal() {

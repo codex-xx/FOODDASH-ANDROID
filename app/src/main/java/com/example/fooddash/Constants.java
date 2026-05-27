@@ -1,10 +1,12 @@
 package com.example.fooddash;
 
 public class Constants {
-    // IMPORTANT: Make sure this is the correct IP address for your XAMPP server.
-    public static final String IP_ADDRESS = "192.168.1.10"; // <-- Update this to your XAMPP server's IP address
+    // Hostinger Backend URL
+    public static final String BASE_URL = "https://deeppink-goshawk-962937.hostingersite.com/api/";
+    
+    // Base URL for images and other resources
+    public static final String RESOURCE_URL = "https://deeppink-goshawk-962937.hostingersite.com/";
 
-    public static final String BASE_URL = "http://" + IP_ADDRESS + "/FoodDash/api/";
     public static final String URL_SEND_NOTIFICATION_EMAIL = BASE_URL + "send-notification-email";
     
     // Auth

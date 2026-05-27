@@ -18,10 +18,11 @@ import androidx.recyclerview.widget.ItemTouchHelper;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
-import com.android.volley.Request;
-import com.android.volley.RequestQueue;
-import com.android.volley.toolbox.JsonObjectRequest;
-import com.android.volley.toolbox.Volley;
+import okhttp3.ResponseBody;
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Response;
+
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.chip.Chip;
 import com.google.android.material.chip.ChipGroup;
@@ -40,7 +41,7 @@ public class NotificationActivity extends AppCompatActivity {
     private static final long POLL_INTERVAL = 5000L;
     private static final String PREFS_NAME = "fooddash_prefs";
 
-    private RequestQueue requestQueue;
+    private ApiService apiService;
     private final Handler pollingHandler = new Handler(Looper.getMainLooper());
     private final Runnable pollingRunnable = new Runnable() {
         @Override
@@ -85,7 +86,7 @@ public class NotificationActivity extends AppCompatActivity {
             return;
         }
 
-        requestQueue = Volley.newRequestQueue(this);
+        apiService = RetrofitClient.getApiService();
         bindViews();
         setupRecyclerView();
         setupFilters();
@@ -317,76 +318,81 @@ public class NotificationActivity extends AppCompatActivity {
     }
 
     private void loadOrderUpdatesFromModernList(int userId) {
-        String url = Constants.URL_ORDERS + "?user_id=" + userId;
-        JsonObjectRequest request = new JsonObjectRequest(Request.Method.GET, url, null,
-                response -> {
-                    List<JSONObject> orders = extractOrders(response);
+        apiService.getOrders(userId).enqueue(new Callback<ResponseBody>() {
+            @Override
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                try {
+                    String body = response.body() != null ? response.body().string() : 
+                                 (response.errorBody() != null ? response.errorBody().string() : "{}");
+                    JSONObject jsonResponse = new JSONObject(body);
+                    List<JSONObject> orders = extractOrders(jsonResponse);
                     if (orders.isEmpty()) {
                         loadOrderUpdatesFromModernPath(userId);
                     } else {
                         NotificationStore.mergeFetchedOrders(NotificationActivity.this, orders);
                         renderCurrentNotifications();
                     }
-                },
-                error -> loadOrderUpdatesFromModernPath(userId)
-        ) {
-            @Override
-            public Map<String, String> getHeaders() {
-                Map<String, String> headers = new HashMap<>();
-                String token = AuthSessionManager.getValidAccessTokenOrNull(NotificationActivity.this);
-                if (!TextUtils.isEmpty(token)) headers.put("Authorization", "Bearer " + token);
-                return headers;
+                } catch (Exception e) {
+                    onFailure(call, e);
+                }
             }
-        };
-        requestQueue.add(request);
+
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) {
+                loadOrderUpdatesFromModernPath(userId);
+            }
+        });
     }
 
     private void loadOrderUpdatesFromModernPath(int userId) {
-        String url = Constants.URL_ORDERS + "/" + userId;
-        JsonObjectRequest request = new JsonObjectRequest(Request.Method.GET, url, null,
-                response -> {
-                    List<JSONObject> orders = extractOrders(response);
+        apiService.getOrderDetails(userId).enqueue(new Callback<ResponseBody>() {
+            @Override
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                try {
+                    String body = response.body() != null ? response.body().string() : 
+                                 (response.errorBody() != null ? response.errorBody().string() : "{}");
+                    JSONObject jsonResponse = new JSONObject(body);
+                    List<JSONObject> orders = extractOrders(jsonResponse);
                     if (orders.isEmpty()) {
                         loadOrderUpdatesLegacy(userId);
                     } else {
                         NotificationStore.mergeFetchedOrders(NotificationActivity.this, orders);
                         renderCurrentNotifications();
                     }
-                },
-                error -> loadOrderUpdatesLegacy(userId)
-        ) {
-            @Override
-            public Map<String, String> getHeaders() {
-                Map<String, String> headers = new HashMap<>();
-                String token = AuthSessionManager.getValidAccessTokenOrNull(NotificationActivity.this);
-                if (!TextUtils.isEmpty(token)) headers.put("Authorization", "Bearer " + token);
-                return headers;
+                } catch (Exception e) {
+                    onFailure(call, e);
+                }
             }
-        };
-        requestQueue.add(request);
+
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) {
+                loadOrderUpdatesLegacy(userId);
+            }
+        });
     }
 
     private void loadOrderUpdatesLegacy(int userId) {
-        String url = Constants.URL_GET_ORDERS_LEGACY + "?user_id=" + userId;
-        JsonObjectRequest request = new JsonObjectRequest(Request.Method.GET, url, null,
-                response -> {
-                    List<JSONObject> orders = extractOrders(response);
+        apiService.getOrdersLegacy(userId).enqueue(new Callback<ResponseBody>() {
+            @Override
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                try {
+                    String body = response.body() != null ? response.body().string() : "{}";
+                    JSONObject jsonResponse = new JSONObject(body);
+                    List<JSONObject> orders = extractOrders(jsonResponse);
                     if (!orders.isEmpty()) {
                         NotificationStore.mergeFetchedOrders(NotificationActivity.this, orders);
                     }
                     renderCurrentNotifications();
-                },
-                error -> renderCurrentNotifications()
-        ) {
-            @Override
-            public Map<String, String> getHeaders() {
-                Map<String, String> headers = new HashMap<>();
-                String token = AuthSessionManager.getValidAccessTokenOrNull(NotificationActivity.this);
-                if (!TextUtils.isEmpty(token)) headers.put("Authorization", "Bearer " + token);
-                return headers;
+                } catch (Exception e) {
+                    renderCurrentNotifications();
+                }
             }
-        };
-        requestQueue.add(request);
+
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) {
+                renderCurrentNotifications();
+            }
+        });
     }
 
     private List<JSONObject> extractOrders(JSONObject response) {

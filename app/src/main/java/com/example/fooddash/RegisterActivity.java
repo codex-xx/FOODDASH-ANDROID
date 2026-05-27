@@ -25,14 +25,17 @@ import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import com.android.volley.Request;
-import com.android.volley.toolbox.JsonObjectRequest;
-import com.android.volley.toolbox.Volley;
-
 import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.Map;
+
+import okhttp3.ResponseBody;
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Response;
 
 public class RegisterActivity extends AppCompatActivity {
 
@@ -401,61 +404,91 @@ public class RegisterActivity extends AppCompatActivity {
     }
 
     private void requestRegistrationOtp(String url, JSONObject payload, String email, boolean allowFallback) {
-        JsonObjectRequest request = new JsonObjectRequest(Request.Method.POST, url, payload,
-                response -> {
-                    boolean success = response.optBoolean("success", false)
-                            || "success".equalsIgnoreCase(response.optString("status"));
+        Map<String, String> fields = new HashMap<>();
+        java.util.Iterator<String> keys = payload.keys();
+        while (keys.hasNext()) {
+            String key = keys.next();
+            fields.put(key, payload.optString(key));
+        }
+
+        ApiService apiService = RetrofitClient.getApiService();
+        Call<ResponseBody> call = apiService.sendOtp(url, fields);
+
+        call.enqueue(new Callback<ResponseBody>() {
+            @Override
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                try {
+                    String responseBody = response.body() != null ? response.body().string() : 
+                                         (response.errorBody() != null ? response.errorBody().string() : "");
+                    responseBody = responseBody.trim();
+
+                    JSONObject jsonResponse;
+                    if (responseBody.startsWith("{")) {
+                        jsonResponse = new JSONObject(responseBody);
+                    } else {
+                        jsonResponse = new JSONObject();
+                        jsonResponse.put("success", response.isSuccessful());
+                        jsonResponse.put("message", responseBody.isEmpty() ? (response.isSuccessful() ? "OTP Sent" : "Failed to send OTP") : responseBody);
+                    }
+                    
+                    boolean success = response.isSuccessful() && (jsonResponse.optBoolean("success", false)
+                            || "success".equalsIgnoreCase(jsonResponse.optString("status")));
+                    
                     if (!success) {
-                        String message = response.optString("message", "Failed to send OTP");
-                        Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+                        if (allowFallback) {
+                            String nextUrl = null;
+                            if (url.equals(Constants.URL_REGISTER_SEND_OTP)) {
+                                nextUrl = Constants.URL_REGISTER_SEND_OTP_FALLBACK;
+                            } else if (url.equals(Constants.URL_REGISTER_SEND_OTP_FALLBACK)) {
+                                nextUrl = Constants.BASE_URL + "send-register-otp.php";
+                            } else if (url.equals(Constants.BASE_URL + "send-register-otp.php")) {
+                                nextUrl = Constants.BASE_URL + "register_send_otp.php";
+                            }
+
+                            if (nextUrl != null) {
+                                Log.d("RegisterActivity", "OTP endpoint failed (" + url + "), trying fallback: " + nextUrl);
+                                requestRegistrationOtp(nextUrl, payload, email, true);
+                                return;
+                            }
+                        }
+                        String message = jsonResponse.optString("message", "Failed to send OTP");
+                        Toast.makeText(RegisterActivity.this, message, Toast.LENGTH_LONG).show();
                         return;
                     }
 
                     otpSent = true;
                     otpVerified = false;
                     otpTargetEmail = email;
-                    otpChallengeToken = extractOtpChallengeToken(response);
+                    otpChallengeToken = extractOtpChallengeToken(jsonResponse);
                     otpEdit.setText("");
-                    Toast.makeText(this, getString(R.string.otp_sent_success), Toast.LENGTH_SHORT).show();
-                },
-                error -> {
-                    if (allowFallback && Constants.URL_REGISTER_SEND_OTP.equals(url)) {
-                        requestRegistrationOtp(Constants.URL_REGISTER_SEND_OTP_FALLBACK, payload, email, false);
+                    Toast.makeText(RegisterActivity.this, getString(R.string.otp_sent_success), Toast.LENGTH_SHORT).show();
+                } catch (Exception e) {
+                    Log.e("RegisterActivity", "Failed to parse OTP response", e);
+                }
+            }
+
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) {
+                if (allowFallback) {
+                    String nextUrl = null;
+                    if (url.equals(Constants.URL_REGISTER_SEND_OTP)) {
+                        nextUrl = Constants.URL_REGISTER_SEND_OTP_FALLBACK;
+                    } else if (url.equals(Constants.URL_REGISTER_SEND_OTP_FALLBACK)) {
+                        nextUrl = Constants.BASE_URL + "send-register-otp.php";
+                    } else if (url.equals(Constants.BASE_URL + "send-register-otp.php")) {
+                        nextUrl = Constants.BASE_URL + "register_send_otp.php";
+                    }
+
+                    if (nextUrl != null) {
+                        Log.d("RegisterActivity", "OTP endpoint failure (" + url + "), trying fallback: " + nextUrl, t);
+                        requestRegistrationOtp(nextUrl, payload, email, true);
                         return;
                     }
-
-                    String message = "Failed to send OTP";
-                    if (error.networkResponse != null && error.networkResponse.data != null) {
-                        String responseBody = new String(error.networkResponse.data, StandardCharsets.UTF_8);
-                        try {
-                            JSONObject errorJson = new JSONObject(responseBody);
-                            if (errorJson.has("errors")) {
-                                JSONObject errors = errorJson.getJSONObject("errors");
-                                java.util.Iterator<String> keys = errors.keys();
-                                if (keys.hasNext()) {
-                                    String firstKey = keys.next();
-                                    org.json.JSONArray messages = errors.optJSONArray(firstKey);
-                                    if (messages != null && messages.length() > 0) {
-                                        message = messages.optString(0, message);
-                                    }
-                                }
-                            } else {
-                                message = errorJson.optString("message", message);
-                            }
-                        } catch (JSONException parseError) {
-                            Log.e("RegisterActivity", "Failed to parse send OTP error", parseError);
-                        }
-                    }
-                    Toast.makeText(this, message, Toast.LENGTH_LONG).show();
                 }
-        );
-
-        request.setRetryPolicy(new com.android.volley.DefaultRetryPolicy(
-                10000,
-                com.android.volley.DefaultRetryPolicy.DEFAULT_MAX_RETRIES,
-                com.android.volley.DefaultRetryPolicy.DEFAULT_BACKOFF_MULT));
-
-        Volley.newRequestQueue(this).add(request);
+                Log.e("RegisterActivity", "OTP Retrofit Error", t);
+                Toast.makeText(RegisterActivity.this, "Failed to send OTP", Toast.LENGTH_LONG).show();
+            }
+        });
     }
 
     private void verifyRegistrationOtpThenRegister(
@@ -495,70 +528,88 @@ public class RegisterActivity extends AppCompatActivity {
             boolean allowEndpointFallback,
             boolean allowLegacyFallback
     ) {
-        JsonObjectRequest request = new JsonObjectRequest(Request.Method.POST, url, verifyPayload,
-                response -> {
-                    boolean success = response.optBoolean("success", false)
-                            || "success".equalsIgnoreCase(response.optString("status"));
+        Map<String, String> fields = new HashMap<>();
+        java.util.Iterator<String> keys = verifyPayload.keys();
+        while (keys.hasNext()) {
+            String key = keys.next();
+            fields.put(key, verifyPayload.optString(key));
+        }
+
+        ApiService apiService = RetrofitClient.getApiService();
+        Call<ResponseBody> call = apiService.verifyOtp(url, fields);
+
+        call.enqueue(new Callback<ResponseBody>() {
+            @Override
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                try {
+                    String responseBody = response.body() != null ? response.body().string() : 
+                                         (response.errorBody() != null ? response.errorBody().string() : "");
+                    responseBody = responseBody.trim();
+
+                    JSONObject jsonResponse;
+                    if (responseBody.startsWith("{")) {
+                        jsonResponse = new JSONObject(responseBody);
+                    } else {
+                        jsonResponse = new JSONObject();
+                        jsonResponse.put("success", response.isSuccessful());
+                        jsonResponse.put("message", responseBody.isEmpty() ? (response.isSuccessful() ? "OTP Verified" : "Invalid OTP") : responseBody);
+                    }
+
+                    boolean success = response.isSuccessful() && (jsonResponse.optBoolean("success", false)
+                            || "success".equalsIgnoreCase(jsonResponse.optString("status")));
+                    
                     if (!success) {
-                        String message = response.optString("message", "Invalid OTP");
-                        Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+                        if (allowEndpointFallback) {
+                            String nextUrl = null;
+                            if (url.equals(Constants.URL_REGISTER_VERIFY_OTP)) {
+                                nextUrl = Constants.URL_VERIFY_CODE;
+                            } else if (url.equals(Constants.URL_VERIFY_CODE)) {
+                                nextUrl = Constants.BASE_URL + "verify-register-otp.php";
+                            } else if (url.equals(Constants.BASE_URL + "verify-register-otp.php")) {
+                                nextUrl = Constants.BASE_URL + "register_verify_otp.php";
+                            }
+
+                            if (nextUrl != null) {
+                                Log.d("RegisterActivity", "OTP verify failed (" + url + "), trying fallback: " + nextUrl);
+                                verifyRegistrationOtp(nextUrl, verifyPayload, postData, role, email, name, true, allowLegacyFallback);
+                                return;
+                            }
+                        }
+                        String message = jsonResponse.optString("message", "Invalid OTP");
+                        Toast.makeText(RegisterActivity.this, message, Toast.LENGTH_LONG).show();
                         return;
                     }
 
                     otpVerified = true;
-                    Toast.makeText(this, getString(R.string.otp_verified_success), Toast.LENGTH_SHORT).show();
+                    Toast.makeText(RegisterActivity.this, getString(R.string.otp_verified_success), Toast.LENGTH_SHORT).show();
                     submitRegistration(postData, role, email, name, true, URL_REGISTER);
-                },
-                error -> {
-                    if (allowEndpointFallback && Constants.URL_REGISTER_VERIFY_OTP.equals(url)) {
-                        verifyRegistrationOtp(
-                                Constants.URL_VERIFY_CODE,
-                                verifyPayload,
-                                postData,
-                                role,
-                                email,
-                                name,
-                                false,
-                                allowLegacyFallback
-                        );
-                        return;
-                    }
-
-                    if (allowLegacyFallback && Constants.URL_VERIFY_CODE.equals(url)) {
-                        verifyRegistrationOtp(
-                                Constants.BASE_URL + "verify-register-otp",
-                                verifyPayload,
-                                postData,
-                                role,
-                                email,
-                                name,
-                                false,
-                                false
-                        );
-                        return;
-                    }
-
-                    String message = "OTP verification failed";
-                    if (error.networkResponse != null && error.networkResponse.data != null) {
-                        String responseBody = new String(error.networkResponse.data, StandardCharsets.UTF_8);
-                        try {
-                            JSONObject errorJson = new JSONObject(responseBody);
-                            message = errorJson.optString("message", message);
-                        } catch (JSONException parseError) {
-                            Log.e("RegisterActivity", "Failed to parse verify OTP error", parseError);
-                        }
-                    }
-
-                    Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+                } catch (Exception e) {
+                    Log.e("RegisterActivity", "Failed to parse verify OTP response", e);
                 }
-        );
+            }
 
-        request.setRetryPolicy(new com.android.volley.DefaultRetryPolicy(
-                10000,
-                com.android.volley.DefaultRetryPolicy.DEFAULT_MAX_RETRIES,
-                com.android.volley.DefaultRetryPolicy.DEFAULT_BACKOFF_MULT));
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) {
+                if (allowEndpointFallback) {
+                    String nextUrl = null;
+                    if (url.equals(Constants.URL_REGISTER_VERIFY_OTP)) {
+                        nextUrl = Constants.URL_VERIFY_CODE;
+                    } else if (url.equals(Constants.URL_VERIFY_CODE)) {
+                        nextUrl = Constants.BASE_URL + "verify-register-otp.php";
+                    } else if (url.equals(Constants.BASE_URL + "verify-register-otp.php")) {
+                        nextUrl = Constants.BASE_URL + "register_verify_otp.php";
+                    }
 
-        Volley.newRequestQueue(this).add(request);
+                    if (nextUrl != null) {
+                        Log.d("RegisterActivity", "OTP verify failure (" + url + "), trying fallback: " + nextUrl, t);
+                        verifyRegistrationOtp(nextUrl, verifyPayload, postData, role, email, name, true, allowLegacyFallback);
+                        return;
+                    }
+                }
+                Log.e("RegisterActivity", "Verify OTP Retrofit Error", t);
+                Toast.makeText(RegisterActivity.this, "OTP verification failed", Toast.LENGTH_LONG).show();
+            }
+        });
     }
 
     private String extractOtpChallengeToken(JSONObject response) {
@@ -736,9 +787,34 @@ public class RegisterActivity extends AppCompatActivity {
     }
 
     private void submitRegistration(JSONObject postData, String role, String email, String name, boolean allowFallback, String targetUrl) {
-        JsonObjectRequest request = new JsonObjectRequest(Request.Method.POST, targetUrl, postData,
-                response -> {
-                    boolean isSuccess = response.optBoolean("success", false) || "success".equals(response.optString("status"));
+        Map<String, String> fields = new HashMap<>();
+        java.util.Iterator<String> keys = postData.keys();
+        while (keys.hasNext()) {
+            String key = keys.next();
+            fields.put(key, postData.optString(key));
+        }
+
+        ApiService apiService = RetrofitClient.getApiService();
+        Call<ResponseBody> call = apiService.register(targetUrl, fields);
+
+        call.enqueue(new Callback<ResponseBody>() {
+            @Override
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                try {
+                    String responseBody = response.body() != null ? response.body().string() : 
+                                         (response.errorBody() != null ? response.errorBody().string() : "");
+                    responseBody = responseBody.trim();
+
+                    JSONObject jsonResponse;
+                    if (responseBody.startsWith("{")) {
+                        jsonResponse = new JSONObject(responseBody);
+                    } else {
+                        jsonResponse = new JSONObject();
+                        jsonResponse.put("success", response.isSuccessful());
+                        jsonResponse.put("message", responseBody.isEmpty() ? (response.isSuccessful() ? "Registration successful" : "Registration failed") : responseBody);
+                    }
+
+                    boolean isSuccess = response.isSuccessful() && (jsonResponse.optBoolean("success", false) || "success".equals(jsonResponse.optString("status")));
                     if (isSuccess) {
                         getApplicationContext().getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
                                 .edit()
@@ -758,65 +834,57 @@ public class RegisterActivity extends AppCompatActivity {
                         String successMessage = "customer".equals(role)
                                 ? "Registration successful. Please log in."
                                 : "Driver account created and awaiting admin approval.";
-                        Toast.makeText(this, successMessage, Toast.LENGTH_LONG).show();
+                        Toast.makeText(RegisterActivity.this, successMessage, Toast.LENGTH_LONG).show();
 
-                        Intent loginIntent = new Intent(this, LoginActivity.class);
+                        Intent loginIntent = new Intent(RegisterActivity.this, LoginActivity.class);
                         loginIntent.putExtra("email", email);
                         loginIntent.putExtra("role", role);
                         loginIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
                         startActivity(loginIntent);
                         finish();
                     } else {
-                        String message = response.optString("message", "Registration failed.");
-                        Toast.makeText(this, message, Toast.LENGTH_LONG).show();
-                    }
-                },
-                error -> {
-                    String message = "Registration Failed. Please try again.";
-                    if (error.networkResponse != null && error.networkResponse.data != null) {
-                        String responseBody = new String(error.networkResponse.data, StandardCharsets.UTF_8);
-                        try {
-                            JSONObject errorJson = new JSONObject(responseBody);
-                            if (errorJson.has("errors")) {
-                                JSONObject errors = errorJson.getJSONObject("errors");
-                                StringBuilder errorMessage = new StringBuilder();
-                                java.util.Iterator<String> keys = errors.keys();
-                                while (keys.hasNext()) {
-                                    String key = keys.next();
-                                    org.json.JSONArray errorArray = errors.getJSONArray(key);
-                                    for (int i = 0; i < errorArray.length(); i++) {
-                                        errorMessage.append(errorArray.getString(i)).append("\n");
-                                    }
-                                }
-                                if (errorMessage.length() > 0) {
-                                    message = errorMessage.substring(0, errorMessage.length() - 1);
-                                } else {
-                                    message = "An unknown error occurred.";
-                                }
-                            } else if (errorJson.has("message")) {
-                                message = errorJson.getString("message");
+                        if (allowFallback) {
+                            String nextUrl = null;
+                            if (targetUrl.equals(Constants.URL_REGISTER)) {
+                                nextUrl = Constants.BASE_URL + "register.php";
+                            } else if (targetUrl.equals(Constants.BASE_URL + "register.php")) {
+                                nextUrl = Constants.BASE_URL + "register_user.php";
                             }
-                        } catch (JSONException e) {
-                            Log.e("RegisterActivity", "Error parsing error JSON: " + responseBody, e);
+
+                            if (nextUrl != null) {
+                                Log.d("RegisterActivity", "Registration failed (" + targetUrl + "), trying fallback: " + nextUrl);
+                                submitRegistration(postData, role, email, name, true, nextUrl);
+                                return;
+                            }
                         }
+                        String message = jsonResponse.optString("message", "Registration failed.");
+                        Toast.makeText(RegisterActivity.this, message, Toast.LENGTH_LONG).show();
+                    }
+                } catch (Exception e) {
+                    Log.e("RegisterActivity", "Failed to parse registration response", e);
+                }
+            }
+
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) {
+                if (allowFallback) {
+                    String nextUrl = null;
+                    if (targetUrl.equals(Constants.URL_REGISTER)) {
+                        nextUrl = Constants.BASE_URL + "register.php";
+                    } else if (targetUrl.equals(Constants.BASE_URL + "register.php")) {
+                        nextUrl = Constants.BASE_URL + "register_user.php";
                     }
 
-                    if (allowFallback && message.toLowerCase().contains("mfa_enabled")) {
-                        submitRegistration(postData, role, email, name, false, URL_REGISTER_LEGACY);
+                    if (nextUrl != null) {
+                        Log.d("RegisterActivity", "Registration failure (" + targetUrl + "), trying fallback: " + nextUrl, t);
+                        submitRegistration(postData, role, email, name, true, nextUrl);
                         return;
                     }
-
-                    Log.e("RegisterActivity", "Registration Volley Error", error);
-                    Toast.makeText(this, message, Toast.LENGTH_LONG).show();
                 }
-        );
-
-        request.setRetryPolicy(new com.android.volley.DefaultRetryPolicy(
-                10000,
-                com.android.volley.DefaultRetryPolicy.DEFAULT_MAX_RETRIES,
-                com.android.volley.DefaultRetryPolicy.DEFAULT_BACKOFF_MULT));
-
-        Volley.newRequestQueue(this).add(request);
+                Log.e("RegisterActivity", "Registration Retrofit Error", t);
+                Toast.makeText(RegisterActivity.this, "Registration Failed. Please try again.", Toast.LENGTH_LONG).show();
+            }
+        });
     }
 
     private boolean isStrongPassword(String password) {

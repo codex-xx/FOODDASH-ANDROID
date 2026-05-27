@@ -18,12 +18,10 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
-import com.android.volley.Request;
-import com.android.volley.RequestQueue;
-import com.android.volley.VolleyError;
-import com.android.volley.toolbox.JsonObjectRequest;
-import com.android.volley.toolbox.StringRequest;
-import com.android.volley.toolbox.Volley;
+import okhttp3.ResponseBody;
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Response;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -39,7 +37,7 @@ import java.util.Map;
 public class CheckoutActivity extends AppCompatActivity {
 
     private static final String TAG = "CheckoutActivity";
-    private RequestQueue requestQueue;
+    private ApiService apiService;
     private double grandSubtotal = 0.0;
     private String cartItemsJson = "[]";
     private final List<OrderGroup> orderGroups = new ArrayList<>();
@@ -99,7 +97,7 @@ public class CheckoutActivity extends AppCompatActivity {
             return;
         }
 
-        requestQueue = Volley.newRequestQueue(this);
+        apiService = RetrofitClient.getApiService();
 
         checkoutAddressEditText = findViewById(R.id.checkoutAddressEditText);
         checkoutVehicleRadioGroup = findViewById(R.id.checkoutVehicleRadioGroup);
@@ -277,57 +275,98 @@ public class CheckoutActivity extends AppCompatActivity {
             return;
         }
 
-        // Temporary workaround: send to legacy endpoint first to avoid schema mismatch on older servers
-        // If you have updated the server schema to include `payment_method`, you can revert this to use the
-        // modern `Constants.URL_ORDERS` JSON API instead.
-        placeLegacyOrder(index, userId, token, address, type, fee, paymentMethod, payload);
+        // Modern orders API
+        Map<String, Object> payloadMap = new HashMap<>();
+        try {
+            payloadMap.put("user_id", userId);
+            payloadMap.put("restaurant_id", group.restaurantId);
+            payloadMap.put("address", address);
+            payloadMap.put("delivery_address", address);
+            payloadMap.put("delivery_type", type);
+            payloadMap.put("delivery_fee", fee);
+            payloadMap.put("subtotal", group.subtotal);
+            payloadMap.put("total_amount", total);
+            payloadMap.put("total", total);
+            payloadMap.put("status", Constants.STATUS_PENDING);
+            payloadMap.put("payment_method", paymentMethod);
+            
+            // Convert JSONArray to List<Map> for Retrofit/Gson if needed, 
+            // but ApiService.placeOrder(Map<String, Object>) should handle this if configured properly.
+            // For safety with a simple Map<String, Object>, we'll pass the string or list.
+            payloadMap.put("items", group.items.toString()); 
+            payloadMap.put("api_token", token);
+        } catch (Exception e) {
+            processGroup(index + 1, userId, token, address, type, fee, paymentMethod);
+            return;
+        }
+
+        apiService.placeOrder(payloadMap).enqueue(new Callback<ResponseBody>() {
+            @Override
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                try {
+                    String body = response.body() != null ? response.body().string() : 
+                                 (response.errorBody() != null ? response.errorBody().string() : "{}");
+                    JSONObject jsonResponse = new JSONObject(body);
+                    
+                    if (response.isSuccessful() || jsonResponse.optBoolean("success", false)) {
+                        successfulGroupCount++;
+                        int orderId = jsonResponse.optInt("order_id", jsonResponse.optInt("id", -1));
+                        if (orderId <= 0) {
+                            JSONObject data = jsonResponse.optJSONObject("data");
+                            if (data != null) orderId = data.optInt("order_id", data.optInt("id", -1));
+                        }
+                        addPlacedOrderId(orderId);
+                        processGroup(index + 1, userId, token, address, type, fee, paymentMethod);
+                    } else {
+                        // Fallback to legacy if modern fails
+                        placeLegacyOrder(index, userId, token, address, type, fee, paymentMethod, payload);
+                    }
+                } catch (Exception e) {
+                    placeLegacyOrder(index, userId, token, address, type, fee, paymentMethod, payload);
+                }
+            }
+
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) {
+                placeLegacyOrder(index, userId, token, address, type, fee, paymentMethod, payload);
+            }
+        });
     }
 
     private void placeLegacyOrder(int index, int userId, String token, String address, String type, double fee, String paymentMethod, JSONObject payload) {
         OrderGroup group = orderGroups.get(index);
-        StringRequest request = new StringRequest(Request.Method.POST, Constants.URL_PLACE_ORDER_LEGACY,
-                response -> {
+        Map<String, String> fields = new HashMap<>();
+        fields.put("user_id", String.valueOf(userId));
+        fields.put("restaurant_id", String.valueOf(group.restaurantId));
+        fields.put("address", address);
+        fields.put("delivery_type", type);
+        fields.put("delivery_fee", String.valueOf(fee));
+        fields.put("total", String.valueOf(group.subtotal + fee));
+        fields.put("payment_method", paymentMethod);
+        fields.put("items", group.items.toString());
+        fields.put("api_token", token);
+
+        apiService.placeOrderLegacy(fields).enqueue(new Callback<ResponseBody>() {
+            @Override
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                try {
+                    String body = response.body() != null ? response.body().string() : 
+                                 (response.errorBody() != null ? response.errorBody().string() : "{}");
                     successfulGroupCount++;
-                    int legacyId = extractOrderIdFromLegacyResponse(response);
+                    int legacyId = extractOrderIdFromLegacyResponse(body);
                     addPlacedOrderId(legacyId);
                     processGroup(index + 1, userId, token, address, type, fee, paymentMethod);
-                },
-                error -> {
-                    Log.e(TAG, "Legacy failed too", error);
-                    if (error.networkResponse != null && error.networkResponse.data != null) {
-                        try {
-                            String body = new String(error.networkResponse.data, StandardCharsets.UTF_8);
-                            Log.e(TAG, "Legacy server response: " + body);
-                            try {
-                                org.json.JSONObject j = new org.json.JSONObject(body);
-                                String serverMsg = j.optString("message", null);
-                                if (serverMsg != null && !serverMsg.isEmpty()) {
-                                    Toast.makeText(this, "Order failed: " + serverMsg, Toast.LENGTH_LONG).show();
-                                }
-                            } catch (Exception ignored) {}
-                        } catch (Exception e) {
-                            Log.e(TAG, "Failed to read legacy error body", e);
-                        }
-                    }
-                    processGroup(index + 1, userId, token, address, type, fee, paymentMethod);
+                } catch (Exception e) {
+                    onFailure(call, e);
                 }
-        ) {
-            @Override
-            protected Map<String, String> getParams() {
-                Map<String, String> p = new HashMap<>();
-                p.put("user_id", String.valueOf(userId));
-                p.put("restaurant_id", String.valueOf(group.restaurantId));
-                p.put("address", address);
-                p.put("delivery_type", type);
-                p.put("delivery_fee", String.valueOf(fee));
-                p.put("total", String.valueOf(group.subtotal + fee));
-                p.put("payment_method", paymentMethod);
-                p.put("items", group.items.toString());
-                p.put("api_token", token);
-                return p;
             }
-        };
-        requestQueue.add(request);
+
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) {
+                Log.e(TAG, "Legacy order failed", t);
+                processGroup(index + 1, userId, token, address, type, fee, paymentMethod);
+            }
+        });
     }
 
     private void removeItemsFromGlobalCart(JSONArray items) {
@@ -387,38 +426,30 @@ public class CheckoutActivity extends AppCompatActivity {
     private void requestSimulatedPaymentCheckoutUrl() {
         setCheckoutUiState(true, "Processing payment...");
 
-        JSONObject payload = new JSONObject();
-        try {
-            payload.put("payment_method", pendingPaymentMethod);
-            payload.put("user_id", pendingUserId);
-            payload.put("amount", getGrandTotal(pendingDeliveryFee));
-            payload.put("order_ids", new JSONArray(placedOrderIds));
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to build simulated payment payload", e);
-            launchPaymentWebView("");
-            return;
-        }
+        Map<String, Object> fields = new HashMap<>();
+        fields.put("payment_method", pendingPaymentMethod);
+        fields.put("user_id", pendingUserId);
+        fields.put("amount", getGrandTotal(pendingDeliveryFee));
+        fields.put("order_ids", new JSONArray(placedOrderIds));
 
-        JsonObjectRequest request = new JsonObjectRequest(
-                Request.Method.POST,
-                Constants.URL_SIMULATE_PAYMENT,
-                payload,
-                response -> launchPaymentWebView(response.optString("checkout_url", "")),
-                error -> {
-                    Log.e(TAG, "simulate-payment request failed", error);
-                    launchPaymentWebView("");
-                }
-        ) {
+        apiService.simulatePayment(fields).enqueue(new Callback<ResponseBody>() {
             @Override
-            public Map<String, String> getHeaders() {
-                Map<String, String> h = new HashMap<>();
-                if (!TextUtils.isEmpty(pendingAuthToken)) {
-                    h.put("Authorization", "Bearer " + pendingAuthToken);
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                try {
+                    String body = response.body() != null ? response.body().string() : "{}";
+                    JSONObject json = new JSONObject(body);
+                    launchPaymentWebView(json.optString("checkout_url", ""));
+                } catch (Exception e) {
+                    onFailure(call, e);
                 }
-                return h;
             }
-        };
-        requestQueue.add(request);
+
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) {
+                Log.e(TAG, "simulate-payment request failed", t);
+                launchPaymentWebView("");
+            }
+        });
     }
 
     private void launchPaymentWebView(String checkoutUrl) {

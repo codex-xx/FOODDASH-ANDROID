@@ -13,10 +13,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
-
-import com.android.volley.Request;
-import com.android.volley.toolbox.JsonObjectRequest;
-import com.android.volley.toolbox.Volley;
+import androidx.core.splashscreen.SplashScreen;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -24,8 +21,15 @@ import org.json.JSONObject;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+
+import okhttp3.ResponseBody;
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Response;
 
 public class LoginActivity extends AppCompatActivity {
 
@@ -41,7 +45,9 @@ public class LoginActivity extends AppCompatActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        SplashScreen.installSplashScreen(this);
         super.onCreate(savedInstanceState);
+        RetrofitClient.init(this);
         setContentView(R.layout.activity_login);
 
         emailEdit = findViewById(R.id.emailEdit);
@@ -155,222 +161,208 @@ public class LoginActivity extends AppCompatActivity {
             return;
         }
 
-        JSONObject postData = new JSONObject();
-        try {
-            postData.put("email", email);
-            postData.put("password", password);
-            if (!roleHint.isEmpty()) {
-                postData.put("role", roleHint);
-                postData.put("user_role", roleHint);
-                postData.put("type", roleHint);
-            }
-        } catch (JSONException e) {
-            Log.e("LoginActivity", "Failed to create JSON object", e);
+        Map<String, String> fields = new HashMap<>();
+        fields.put("email", email);
+        fields.put("password", password);
+        if (!roleHint.isEmpty()) {
+            fields.put("role", roleHint);
+            fields.put("user_role", roleHint);
+            fields.put("type", roleHint);
         }
 
-        JsonObjectRequest request = new JsonObjectRequest(Request.Method.POST, url, postData,
-                response -> {
-                    try {
-                        if (!response.optBoolean("success", true)) {
-                            String message = response.optString("message", "Login failed.");
-                            if (isAuthFailureMessage(message)) {
-                                // Try next attempt (different role or fallback URL)
-                                if (tryNextLoginAttempt(emailInput, passwordInput, url, allowFallback, roleCandidates, roleIndex)) {
-                                    return;
-                                }
-                                // All attempts exhausted - now record the failed attempt
-                                int failedAttempts = LoginAttemptsManager.recordFailedAttempt(this, email);
-                                int remainingAttempts = LoginAttemptsManager.getRemainingAttempts(this, email);
-                                
-                                if (remainingAttempts > 0) {
-                                    String warningMessage = String.format(
-                                            "%s\n\nAttempts remaining: %d",
-                                            message,
-                                            remainingAttempts
-                                    );
-                                    Toast.makeText(this, warningMessage, Toast.LENGTH_LONG).show();
-                                } else {
-                                    // Account is now locked
-                                    String lockoutMessage = "Too many failed login attempts. Please try again after 1 minute.";
-                                    Toast.makeText(this, lockoutMessage, Toast.LENGTH_LONG).show();
-                                }
-                                return;
-                            }
+        ApiService apiService = RetrofitClient.getApiService(this);
+        Log.d("LoginActivity", "Attempting login at: " + url);
+        Call<ResponseBody> call = apiService.login(url, fields);
+
+        call.enqueue(new Callback<ResponseBody>() {
+            @Override
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                try {
+                    String responseBody = response.body() != null ? response.body().string() : 
+                                         (response.errorBody() != null ? response.errorBody().string() : "");
+                    responseBody = responseBody.trim();
+
+                    JSONObject jsonResponse;
+                    if (responseBody.startsWith("{")) {
+                        jsonResponse = new JSONObject(responseBody);
+                    } else {
+                        jsonResponse = new JSONObject();
+                        jsonResponse.put("success", response.isSuccessful());
+                        String cleanMsg = responseBody;
+                        if (cleanMsg.contains("<html") || cleanMsg.contains("<body")) {
+                            cleanMsg = response.isSuccessful() ? "Login successful" : "Login failed (Endpoint not found or Server error)";
+                        }
+                        jsonResponse.put("message", cleanMsg.isEmpty() ? (response.isSuccessful() ? "Login successful" : "Login failed") : cleanMsg);
+                    }
+
+                    if (!response.isSuccessful() || !jsonResponse.optBoolean("success", true)) {
+                        // Handle 404 or other non-success codes by trying fallbacks first
+                        if (response.code() == 404 || response.code() == 405) {
                             if (tryNextLoginAttempt(emailInput, passwordInput, url, allowFallback, roleCandidates, roleIndex)) {
                                 return;
                             }
-                            Toast.makeText(this, message, Toast.LENGTH_LONG).show();
-                            return;
                         }
 
-                        JSONObject data = response.optJSONObject("data");
-                        JSONObject user = data != null ? data.optJSONObject("user") : null;
-
-                        String role = extractRole(response, data, user);
-                        String status = extractDriverStatus(response, data, user);
-                        boolean isDriver = isDriverRole(role);
-
-                        if (isDriver) {
-                            if ("pending".equals(status)) {
-                                Toast.makeText(this, "Account awaiting approval", Toast.LENGTH_LONG).show();
+                        String message = jsonResponse.optString("message", "Login failed.");
+                        if (isAuthFailureMessage(message)) {
+                            if (tryNextLoginAttempt(emailInput, passwordInput, url, allowFallback, roleCandidates, roleIndex)) {
                                 return;
                             }
-                            if ("rejected".equals(status)) {
-                                String message = response.optString("message", "Your driver account was rejected.");
-                                Toast.makeText(this, message, Toast.LENGTH_LONG).show();
-                                return;
-                            }
-                            if (!"approved".equals(status) && !"active".equals(status)) {
-                                Toast.makeText(this, "Driver account is not approved yet.", Toast.LENGTH_LONG).show();
-                                return;
-                            }
-                        }
+                            int failedAttempts = LoginAttemptsManager.recordFailedAttempt(LoginActivity.this, email);
+                            int remainingAttempts = LoginAttemptsManager.getRemainingAttempts(LoginActivity.this, email);
 
-                        if (AuthSessionManager.isMfaRequired(response)) {
-                            Intent mfaIntent = new Intent(this, MfaVerificationActivity.class);
-                            mfaIntent.putExtra("email", email);
-                            mfaIntent.putExtra("role", role);
-                            mfaIntent.putExtra("mfa_challenge_token", AuthSessionManager.extractMfaChallengeToken(response));
-                            startActivity(mfaIntent);
+                            if (remainingAttempts > 0) {
+                                String warningMessage = String.format("%s\n\nAttempts remaining: %d", message, remainingAttempts);
+                                Toast.makeText(LoginActivity.this, warningMessage, Toast.LENGTH_LONG).show();
+                            } else {
+                                Toast.makeText(LoginActivity.this, "Too many failed login attempts. Please try again after 1 minute.", Toast.LENGTH_LONG).show();
+                            }
                             return;
                         }
-
-                        String apiToken = AuthSessionManager.extractAccessToken(response);
-
-                        if (apiToken.isEmpty()) {
-                            Log.e("LoginActivity", "API token not found in response: " + response);
-                            Toast.makeText(this, "Login failed: Could not retrieve API token.", Toast.LENGTH_LONG).show();
+                        if (tryNextLoginAttempt(emailInput, passwordInput, url, allowFallback, roleCandidates, roleIndex)) {
                             return;
                         }
-
-                        String refreshToken = AuthSessionManager.extractRefreshToken(response);
-                        String tokenType = AuthSessionManager.extractTokenType(response);
-                        Long expiresAt = AuthSessionManager.extractExpiresAtEpochSeconds(response, apiToken);
-                        AuthSessionManager.saveSession(this, apiToken, refreshToken, expiresAt, tokenType);
-
-                        // Clear login attempts on successful login
-                        LoginAttemptsManager.clearLoginAttempts(this, email);
-
-                        SharedPreferences prefs = getApplicationContext().getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-                        int userId = extractUserId(response, data, user);
-                        
-                        String userName = firstNonEmpty(
-                            findFirstStringForKeys(user, "name", "full_name", "username"),
-                            findFirstStringForKeys(data, "name", "full_name", "username"),
-                            findFirstStringForKeys(response, "name", "full_name", "username")
-                        );
-
-                        String vehicleType = normalizeValue(firstNonEmpty(
-                            findFirstStringForKeys(user, "vehicle_type", "vehicleType", "vehicle"),
-                            findFirstStringForKeys(data, "vehicle_type", "vehicleType", "vehicle"),
-                            findFirstStringForKeys(response, "vehicle_type", "vehicleType", "vehicle")
-                        ));
-                        String deliveryAddress = firstNonEmpty(
-                            findFirstStringForKeys(user, "delivery_address", "address"),
-                            findFirstStringForKeys(data, "delivery_address", "address"),
-                            findFirstStringForKeys(response, "delivery_address", "address")
-                        );
-                        String latitude = firstNonEmpty(
-                            findFirstStringForKeys(user, "latitude", "lat", "customer_latitude", "driver_latitude"),
-                            findFirstStringForKeys(data, "latitude", "lat", "customer_latitude", "driver_latitude"),
-                            findFirstStringForKeys(response, "latitude", "lat", "customer_latitude", "driver_latitude")
-                        );
-                        String longitude = firstNonEmpty(
-                            findFirstStringForKeys(user, "longitude", "lng", "customer_longitude", "driver_longitude"),
-                            findFirstStringForKeys(data, "longitude", "lng", "customer_longitude", "driver_longitude"),
-                            findFirstStringForKeys(response, "longitude", "lng", "customer_longitude", "driver_longitude")
-                        );
-                        String contactNumber = firstNonEmpty(
-                            findFirstStringForKeys(user, "contact_number", "phone", "contact"),
-                            findFirstStringForKeys(data, "contact_number", "phone", "contact"),
-                            findFirstStringForKeys(response, "contact_number", "phone", "contact")
-                        );
-
-                        prefs.edit()
-                            .putInt("user_id", userId)
-                            .putString("user_name", userName)
-                            .putString("user_role", role)
-                            .putString("user_email", email)
-                            .putString("delivery_address", TextUtils.isEmpty(deliveryAddress) ? prefs.getString("delivery_address", "") : deliveryAddress)
-                            .putString("latitude", TextUtils.isEmpty(latitude) ? prefs.getString("latitude", "") : latitude)
-                            .putString("longitude", TextUtils.isEmpty(longitude) ? prefs.getString("longitude", "") : longitude)
-                            .putString("contact_number", contactNumber)
-                            .putString("vehicle_type", vehicleType)
-                            .apply();
-                        if (isDriver) {
-                            prefs.edit().putString("driver_email", email).apply();
-                        }
-
-                        if (isDriver && "approved".equals(status)) {
-                            maybeSendDriverApprovalEmail(email, response, data, user);
-                        }
-
-                        Toast.makeText(this, "Login Successful!", Toast.LENGTH_SHORT).show();
-
-                        Intent intent;
-                        if (isDriver) {
-                            intent = new Intent(this, DriverDashboard.class);
-                        } else {
-                            intent = new Intent(this, CustomerDashboard.class);
-                        }
-                        startActivity(intent);
-                        finish();
-
-                    } catch (Exception e) {
-                        Log.e("LoginActivity", "Failed to parse login success response", e);
-                        Toast.makeText(this, "An error occurred after login.", Toast.LENGTH_LONG).show();
-                    }
-                },
-                error -> {
-                    if (error != null && error.networkResponse != null && error.networkResponse.data != null) {
-                        try {
-                            String responseBody = new String(error.networkResponse.data, StandardCharsets.UTF_8);
-                            JSONObject data = new JSONObject(responseBody);
-                            String message = data.optString("message", "An unknown error occurred.");
-                            if (isAuthFailureMessage(message)) {
-                                // Try next attempt (different role or fallback URL)
-                                if (tryNextLoginAttempt(emailInput, passwordInput, url, allowFallback, roleCandidates, roleIndex)) {
-                                    return;
-                                }
-                                // All attempts exhausted - now record the failed attempt
-                                int failedAttempts = LoginAttemptsManager.recordFailedAttempt(this, email);
-                                int remainingAttempts = LoginAttemptsManager.getRemainingAttempts(this, email);
-                                
-                                if (remainingAttempts > 0) {
-                                    String warningMessage = String.format(
-                                            "%s\n\nAttempts remaining: %d",
-                                            message,
-                                            remainingAttempts
-                                    );
-                                    Toast.makeText(this, warningMessage, Toast.LENGTH_LONG).show();
-                                } else {
-                                    // Account is now locked
-                                    String lockoutMessage = "Too many failed login attempts. Please try again after 1 minute.";
-                                    Toast.makeText(this, lockoutMessage, Toast.LENGTH_LONG).show();
-                                }
-                                return;
-                            }
-                            Toast.makeText(this, message, Toast.LENGTH_LONG).show();
-                            return;
-                        } catch (Exception e) {
-                            Log.e("LoginActivity", "Error parsing error response", e);
-                        }
-                    }
-
-                    if (tryNextLoginAttempt(emailInput, passwordInput, url, allowFallback, roleCandidates, roleIndex)) {
+                        Toast.makeText(LoginActivity.this, message, Toast.LENGTH_LONG).show();
                         return;
                     }
 
-                    if (error != null && error.networkResponse != null) {
-                        Toast.makeText(this, "Login Failed (Code " + error.networkResponse.statusCode + ").", Toast.LENGTH_LONG).show();
-                    } else {
-                        Log.e("LoginActivity", "Login Volley Error", error);
-                        Toast.makeText(this, "Login Failed. Check network connection.", Toast.LENGTH_LONG).show();
-                    }
-                }
-        );
+                    handleLoginSuccess(jsonResponse, email);
 
-        Volley.newRequestQueue(this).add(request);
+                } catch (Exception e) {
+                    Log.e("LoginActivity", "Failed to parse login response", e);
+                    Toast.makeText(LoginActivity.this, "An error occurred after login.", Toast.LENGTH_LONG).show();
+                }
+            }
+
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) {
+                if (tryNextLoginAttempt(emailInput, passwordInput, url, allowFallback, roleCandidates, roleIndex)) {
+                    return;
+                }
+                Log.e("LoginActivity", "Login Retrofit Error", t);
+                Toast.makeText(LoginActivity.this, "Login Failed. Check network connection.", Toast.LENGTH_LONG).show();
+            }
+        });
+    }
+
+    private void handleLoginSuccess(JSONObject response, String email) {
+        try {
+            JSONObject data = response.optJSONObject("data");
+            JSONObject user = data != null ? data.optJSONObject("user") : null;
+
+            String role = extractRole(response, data, user);
+            String status = extractDriverStatus(response, data, user);
+            boolean isDriver = isDriverRole(role);
+
+            if (isDriver) {
+                if ("pending".equals(status)) {
+                    Toast.makeText(this, "Account awaiting approval", Toast.LENGTH_LONG).show();
+                    return;
+                }
+                if ("rejected".equals(status)) {
+                    String message = response.optString("message", "Your driver account was rejected.");
+                    Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+                    return;
+                }
+                if (!"approved".equals(status) && !"active".equals(status)) {
+                    Toast.makeText(this, "Driver account is not approved yet.", Toast.LENGTH_LONG).show();
+                    return;
+                }
+            }
+
+            if (AuthSessionManager.isMfaRequired(response)) {
+                Intent mfaIntent = new Intent(this, MfaVerificationActivity.class);
+                mfaIntent.putExtra("email", email);
+                mfaIntent.putExtra("role", role);
+                mfaIntent.putExtra("mfa_challenge_token", AuthSessionManager.extractMfaChallengeToken(response));
+                startActivity(mfaIntent);
+                return;
+            }
+
+            String apiToken = AuthSessionManager.extractAccessToken(response);
+
+            if (apiToken.isEmpty()) {
+                Log.e("LoginActivity", "API token not found in response: " + response);
+                Toast.makeText(this, "Login failed: Could not retrieve API token.", Toast.LENGTH_LONG).show();
+                return;
+            }
+
+            String refreshToken = AuthSessionManager.extractRefreshToken(response);
+            String tokenType = AuthSessionManager.extractTokenType(response);
+            Long expiresAt = AuthSessionManager.extractExpiresAtEpochSeconds(response, apiToken);
+            AuthSessionManager.saveSession(this, apiToken, refreshToken, expiresAt, tokenType);
+
+            LoginAttemptsManager.clearLoginAttempts(this, email);
+
+            SharedPreferences prefs = getApplicationContext().getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+            int userId = extractUserId(response, data, user);
+
+            String userName = firstNonEmpty(
+                    findFirstStringForKeys(user, "name", "full_name", "username"),
+                    findFirstStringForKeys(data, "name", "full_name", "username"),
+                    findFirstStringForKeys(response, "name", "full_name", "username")
+            );
+
+            String vehicleType = normalizeValue(firstNonEmpty(
+                    findFirstStringForKeys(user, "vehicle_type", "vehicleType", "vehicle"),
+                    findFirstStringForKeys(data, "vehicle_type", "vehicleType", "vehicle"),
+                    findFirstStringForKeys(response, "vehicle_type", "vehicleType", "vehicle")
+            ));
+            String deliveryAddress = firstNonEmpty(
+                    findFirstStringForKeys(user, "delivery_address", "address"),
+                    findFirstStringForKeys(data, "delivery_address", "address"),
+                    findFirstStringForKeys(response, "delivery_address", "address")
+            );
+            String latitude = firstNonEmpty(
+                    findFirstStringForKeys(user, "latitude", "lat", "customer_latitude", "driver_latitude"),
+                    findFirstStringForKeys(data, "latitude", "lat", "customer_latitude", "driver_latitude"),
+                    findFirstStringForKeys(response, "latitude", "lat", "customer_latitude", "driver_latitude")
+            );
+            String longitude = firstNonEmpty(
+                    findFirstStringForKeys(user, "longitude", "lng", "customer_longitude", "driver_longitude"),
+                    findFirstStringForKeys(data, "longitude", "lng", "customer_longitude", "driver_longitude"),
+                    findFirstStringForKeys(response, "longitude", "lng", "customer_longitude", "driver_longitude")
+            );
+            String contactNumber = firstNonEmpty(
+                    findFirstStringForKeys(user, "contact_number", "phone", "contact"),
+                    findFirstStringForKeys(data, "contact_number", "phone", "contact"),
+                    findFirstStringForKeys(response, "contact_number", "phone", "contact")
+            );
+
+            prefs.edit()
+                    .putInt("user_id", userId)
+                    .putString("user_name", userName)
+                    .putString("user_role", role)
+                    .putString("user_email", email)
+                    .putString("delivery_address", TextUtils.isEmpty(deliveryAddress) ? prefs.getString("delivery_address", "") : deliveryAddress)
+                    .putString("latitude", TextUtils.isEmpty(latitude) ? prefs.getString("latitude", "") : latitude)
+                    .putString("longitude", TextUtils.isEmpty(longitude) ? prefs.getString("longitude", "") : longitude)
+                    .putString("contact_number", contactNumber)
+                    .putString("vehicle_type", vehicleType)
+                    .apply();
+            if (isDriver) {
+                prefs.edit().putString("driver_email", email).apply();
+            }
+
+            if (isDriver && "approved".equals(status)) {
+                maybeSendDriverApprovalEmail(email, response, data, user);
+            }
+
+            Toast.makeText(this, "Login Successful!", Toast.LENGTH_SHORT).show();
+
+            Intent intent;
+            if (isDriver) {
+                intent = new Intent(this, DriverDashboard.class);
+            } else {
+                intent = new Intent(this, CustomerDashboard.class);
+            }
+            startActivity(intent);
+            finish();
+
+        } catch (Exception e) {
+            Log.e("LoginActivity", "Failed to process login success", e);
+            Toast.makeText(this, "An error occurred after login.", Toast.LENGTH_LONG).show();
+        }
     }
 
     private List<String> buildLoginRoleCandidates(String email) {
@@ -405,10 +397,32 @@ public class LoginActivity extends AppCompatActivity {
             return true;
         }
 
-        if (allowFallback && Constants.URL_LOGIN.equals(url)) {
-            Log.w("LoginActivity", "Login failed on primary URL, trying legacy fallback...");
-            performLogin(emailInput, passwordInput, Constants.URL_LOGIN_LEGACY, false, roleCandidates, 0);
-            return true;
+        if (allowFallback) {
+            String nextUrl = null;
+            String baseUrl = Constants.BASE_URL; // "https://.../api/"
+            String rootUrl = baseUrl.replace("/api/", "/"); // "https://.../"
+
+            if (Constants.URL_LOGIN.equals(url)) {
+                nextUrl = Constants.URL_LOGIN_LEGACY;
+            } else if (Constants.URL_LOGIN_LEGACY.equals(url)) {
+                nextUrl = baseUrl + "login_user.php";
+            } else if ((baseUrl + "login_user.php").equals(url)) {
+                nextUrl = baseUrl + "user_login.php";
+            } else if ((baseUrl + "user_login.php").equals(url)) {
+                nextUrl = rootUrl + "login.php";
+            } else if ((rootUrl + "login.php").equals(url)) {
+                nextUrl = baseUrl + "login_action.php";
+            } else if ((baseUrl + "login_action.php").equals(url)) {
+                nextUrl = baseUrl + "do_login.php";
+            } else if ((baseUrl + "do_login.php").equals(url)) {
+                nextUrl = baseUrl + "authenticate.php";
+            }
+
+            if (nextUrl != null) {
+                Log.w("LoginActivity", "Login failed on " + url + ", trying fallback: " + nextUrl);
+                performLogin(emailInput, passwordInput, nextUrl, true, roleCandidates, 0);
+                return true;
+            }
         }
 
         return false;

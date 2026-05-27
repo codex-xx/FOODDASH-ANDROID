@@ -23,12 +23,12 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
-import com.android.volley.Request;
-import com.android.volley.RequestQueue;
-import com.android.volley.toolbox.JsonArrayRequest;
-import com.android.volley.toolbox.JsonObjectRequest;
-import com.android.volley.toolbox.Volley;
 import com.bumptech.glide.Glide;
+
+import okhttp3.ResponseBody;
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Response;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -41,7 +41,7 @@ import java.util.Map;
 
 public class RestaurantMenuActivity extends AppCompatActivity {
 
-    private static final String ALL_RESTAURANTS_ENDPOINT = Constants.URL_GET_ALL_RESTAURANTS;
+    private static final String ALL_RESTAURANTS_ENDPOINT = Constants.URL_RESTAURANTS;
 
     private RecyclerView restaurantsRecyclerView;
     private RecyclerView productsRecyclerView;
@@ -58,7 +58,7 @@ public class RestaurantMenuActivity extends AppCompatActivity {
     private Button tabProfileButton;
     private TextView tabCartBadgeTextView;
     private TextView tabNotificationsBadgeTextView;
-    private RequestQueue requestQueue;
+    private ApiService apiService;
     private final List<Restaurant> restaurantList = new ArrayList<>();
     private final List<Product> allProductList = new ArrayList<>();
     private final List<Product> productList = new ArrayList<>();
@@ -102,7 +102,7 @@ public class RestaurantMenuActivity extends AppCompatActivity {
         restaurantsRecyclerView.setNestedScrollingEnabled(false);
         productsRecyclerView.setLayoutManager(new GridLayoutManager(this, 2));
         productsRecyclerView.setNestedScrollingEnabled(false);
-        requestQueue = Volley.newRequestQueue(this);
+        apiService = RetrofitClient.getApiService(this);
         adapter = new ProductAdapter(productList);
         productsRecyclerView.setAdapter(adapter);
         restaurantAdapter = new RestaurantAdapter(restaurantList);
@@ -143,28 +143,30 @@ public class RestaurantMenuActivity extends AppCompatActivity {
     }
 
     private void fetchRestaurants() {
-        JsonObjectRequest request = new JsonObjectRequest(Request.Method.GET, ALL_RESTAURANTS_ENDPOINT, null,
-                response -> {
-                    JSONArray restaurants = response.optJSONArray("restaurants");
-                    if (restaurants == null) restaurants = response.optJSONArray("data");
+        apiService.getRestaurants().enqueue(new Callback<ResponseBody>() {
+            @Override
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                try {
+                    String body = response.body() != null ? response.body().string() : "{}";
+                    JSONObject jsonResponse = new JSONObject(body);
+                    JSONArray restaurants = jsonResponse.optJSONArray("restaurants");
+                    if (restaurants == null) restaurants = jsonResponse.optJSONArray("data");
                     applyRestaurantData(restaurants != null ? restaurants : new JSONArray());
-                },
-                error -> {
-                    JsonArrayRequest legacyRequest = new JsonArrayRequest(Request.Method.GET, ALL_RESTAURANTS_ENDPOINT, null,
-                            this::applyRestaurantData,
-                            legacyError -> {
-                                restaurantList.clear();
-                                restaurantAdapter.notifyDataSetChanged();
-                                if (partnerRestaurantsTitleTextView != null) {
-                                    partnerRestaurantsTitleTextView.setVisibility(View.GONE);
-                                }
-                                restaurantsRecyclerView.setVisibility(View.GONE);
-                            }
-                    );
-                    requestQueue.add(legacyRequest);
+                } catch (Exception e) {
+                    onFailure(call, e);
                 }
-        );
-        requestQueue.add(request);
+            }
+
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) {
+                restaurantList.clear();
+                restaurantAdapter.notifyDataSetChanged();
+                if (partnerRestaurantsTitleTextView != null) {
+                    partnerRestaurantsTitleTextView.setVisibility(View.GONE);
+                }
+                restaurantsRecyclerView.setVisibility(View.GONE);
+            }
+        });
     }
 
     private void applyRestaurantData(JSONArray restaurants) {
@@ -200,25 +202,91 @@ public class RestaurantMenuActivity extends AppCompatActivity {
         }
 
         loadingProgressBar.setVisibility(View.VISIBLE);
-        String url = Constants.URL_GET_MENU_BY_RESTAURANT + "?restaurant_id=" + restaurantId;
-        JsonObjectRequest req = new JsonObjectRequest(Request.Method.GET, url, null,
-                response -> {
-                    JSONArray menus = response.optJSONArray("menus");
-                    if (menus == null) menus = response.optJSONArray("data");
-                    if (menus == null) menus = new JSONArray();
-                    bindMenuArray(menus);
-                }, error -> {
-                    JsonArrayRequest legacy = new JsonArrayRequest(Request.Method.GET,
-                            Constants.URL_GET_MENU_LEGACY + "?restaurant_id=" + restaurantId,
-                            null,
-                            this::bindMenuArray,
-                            legacyError -> {
-                                loadingProgressBar.setVisibility(View.GONE);
-                                Toast.makeText(this, "Failed to load menu", Toast.LENGTH_SHORT).show();
-                            });
-                    requestQueue.add(legacy);
-                });
-        requestQueue.add(req);
+        
+        // Priority 1: Modern JSON API /menu
+        apiService.getMenu(restaurantId).enqueue(new Callback<ResponseBody>() {
+            @Override
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                try {
+                    String body = response.body() != null ? response.body().string() : "{}";
+                    JSONObject jsonResponse = new JSONObject(body);
+                    JSONArray menus = jsonResponse.optJSONArray("menus");
+                    if (menus == null) menus = jsonResponse.optJSONArray("data");
+                    
+                    // Direct array fallback
+                    if (menus == null && body.trim().startsWith("[")) {
+                        menus = new JSONArray(body);
+                    }
+                    
+                    if (menus != null) {
+                        bindMenuArray(menus);
+                    } else {
+                        tryNextMenuFallback();
+                    }
+                } catch (Exception e) {
+                    tryNextMenuFallback();
+                }
+            }
+
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) {
+                tryNextMenuFallback();
+            }
+        });
+    }
+
+    private void tryNextMenuFallback() {
+        // Priority 2: Intermediate PHP fallback /get_menus_by_restaurant.php
+        apiService.getMenusByRestaurant(restaurantId).enqueue(new Callback<ResponseBody>() {
+            @Override
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                try {
+                    String body = response.body() != null ? response.body().string() : "{}";
+                    JSONObject jsonResponse = new JSONObject(body);
+                    JSONArray menus = jsonResponse.optJSONArray("menus");
+                    if (menus == null) menus = jsonResponse.optJSONArray("data");
+                    
+                    if (menus == null && body.trim().startsWith("[")) {
+                        menus = new JSONArray(body);
+                    }
+                    
+                    if (menus != null) {
+                        bindMenuArray(menus);
+                    } else {
+                        tryLegacyMenuFallback();
+                    }
+                } catch (Exception e) {
+                    tryLegacyMenuFallback();
+                }
+            }
+
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) {
+                tryLegacyMenuFallback();
+            }
+        });
+    }
+
+    private void tryLegacyMenuFallback() {
+        // Priority 3: Final legacy fallback /get_menus.php
+        apiService.getMenusLegacy(restaurantId).enqueue(new Callback<ResponseBody>() {
+            @Override
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                try {
+                    String body = response.body() != null ? response.body().string() : "[]";
+                    bindMenuArray(new JSONArray(body));
+                } catch (Exception e) {
+                    loadingProgressBar.setVisibility(View.GONE);
+                    updateEmptyState();
+                }
+            }
+
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) {
+                loadingProgressBar.setVisibility(View.GONE);
+                updateEmptyState();
+            }
+        });
     }
 
     private void bindMenuArray(JSONArray menus) {
@@ -407,7 +475,7 @@ public class RestaurantMenuActivity extends AppCompatActivity {
     private String normalizeImageUrl(String url) {
         if (TextUtils.isEmpty(url)) return "";
         if (url.startsWith("http")) return url;
-        return "http://" + Constants.IP_ADDRESS + "/" + url;
+        return Constants.RESOURCE_URL + url;
     }
 
     private void loadGlobalCart() {

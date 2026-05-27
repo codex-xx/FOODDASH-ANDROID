@@ -11,10 +11,12 @@ import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
-import com.android.volley.Request;
-import com.android.volley.RequestQueue;
-import com.android.volley.toolbox.JsonObjectRequest;
-import com.android.volley.toolbox.Volley;
+import okhttp3.ResponseBody;
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Response;
+
+import org.json.JSONObject;
 
 import java.util.Locale;
 
@@ -23,7 +25,7 @@ public class GcashPaymentActivity extends AppCompatActivity {
     public static final String EXTRA_AMOUNT = "amount";
     
     private int orderId;
-    private RequestQueue requestQueue;
+    private ApiService apiService;
     private Handler pollingHandler;
     private Runnable pollingRunnable;
 
@@ -35,7 +37,7 @@ public class GcashPaymentActivity extends AppCompatActivity {
         double amount = getIntent().getDoubleExtra(EXTRA_AMOUNT, 0.0);
         orderId = getIntent().getIntExtra("order_id", -1);
         
-        requestQueue = Volley.newRequestQueue(this);
+        apiService = RetrofitClient.getApiService();
         pollingHandler = new Handler(Looper.getMainLooper());
 
         TextView amountTextView = findViewById(R.id.gcashAmountTextView);
@@ -87,20 +89,24 @@ public class GcashPaymentActivity extends AppCompatActivity {
     }
 
     private void checkPaymentStatusOnServer() {
-        String url = Constants.BASE_URL + "get_order_status.php?order_id=" + orderId;
-        
-        JsonObjectRequest request = new JsonObjectRequest(Request.Method.GET, url, null,
-                response -> {
-                    String status = response.optString("status", "");
+        apiService.getOrderStatusLegacy(orderId).enqueue(new Callback<ResponseBody>() {
+            @Override
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                try {
+                    String body = response.body() != null ? response.body().string() : "{}";
+                    JSONObject jsonResponse = new JSONObject(body);
+                    String status = jsonResponse.optString("status", "");
                     if (status.equalsIgnoreCase("paid") || status.equalsIgnoreCase("accepted") || status.equalsIgnoreCase("ready")) {
                         onPaymentSuccessful();
                     }
-                },
-                error -> {
-                    // Fail silently
-                }
-        );
-        requestQueue.add(request);
+                } catch (Exception ignored) {}
+            }
+
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) {
+                // Fail silently
+            }
+        });
     }
 
     private void onPaymentSuccessful() {

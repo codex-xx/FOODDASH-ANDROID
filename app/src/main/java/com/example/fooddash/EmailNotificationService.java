@@ -3,16 +3,17 @@ package com.example.fooddash;
 import android.content.Context;
 import android.util.Log;
 
-import com.android.volley.DefaultRetryPolicy;
-import com.android.volley.Request;
-import com.android.volley.toolbox.JsonObjectRequest;
-import com.android.volley.toolbox.Volley;
+import java.util.HashMap;
+import java.util.Locale;
+import java.util.Map;
+
+import okhttp3.ResponseBody;
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Response;
 
 import org.json.JSONException;
 import org.json.JSONObject;
-
-import java.nio.charset.StandardCharsets;
-import java.util.Locale;
 
 public final class EmailNotificationService {
 
@@ -69,43 +70,37 @@ public final class EmailNotificationService {
             return;
         }
 
-        JSONObject postData = new JSONObject();
-        try {
-            postData.put("event", event);
-            postData.put("email", normalizedEmail);
-            postData.put("name", name == null ? "" : name.trim());
-            postData.put("role", role);
-        } catch (JSONException e) {
-            Log.e(TAG, "Failed to build notification payload", e);
-            return;
-        }
+        Map<String, String> fields = new HashMap<>();
+        fields.put("event", event);
+        fields.put("email", normalizedEmail);
+        fields.put("name", name == null ? "" : name.trim());
+        fields.put("role", role);
 
-        JsonObjectRequest request = new JsonObjectRequest(Request.Method.POST, Constants.URL_SEND_NOTIFICATION_EMAIL, postData,
-                response -> {
-                    if (isSuccess(response)) {
+        ApiService apiService = RetrofitClient.getApiService();
+        apiService.sendNotificationEmail(fields).enqueue(new retrofit2.Callback<ResponseBody>() {
+            @Override
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                try {
+                    String body = response.body() != null ? response.body().string() : 
+                                 (response.errorBody() != null ? response.errorBody().string() : "{}");
+                    JSONObject jsonResponse = new JSONObject(body);
+                    if (isSuccess(jsonResponse)) {
                         if (callback != null) {
                             callback.onSuccess();
                         }
                     } else {
-                        Log.w(TAG, "Notification endpoint returned non-success response: " + response);
+                        Log.w(TAG, "Notification endpoint returned non-success response: " + body);
                     }
-                },
-                error -> {
-                    if (error.networkResponse != null && error.networkResponse.data != null) {
-                        String responseBody = new String(error.networkResponse.data, StandardCharsets.UTF_8);
-                        Log.e(TAG, "Failed to send email notification: " + responseBody, error);
-                    } else {
-                        Log.e(TAG, "Failed to send email notification", error);
-                    }
+                } catch (Exception e) {
+                    onFailure(call, e);
                 }
-        );
+            }
 
-        request.setRetryPolicy(new DefaultRetryPolicy(
-                10000,
-                DefaultRetryPolicy.DEFAULT_MAX_RETRIES,
-                DefaultRetryPolicy.DEFAULT_BACKOFF_MULT));
-
-        Volley.newRequestQueue(context.getApplicationContext()).add(request);
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) {
+                Log.e(TAG, "Failed to send email notification", t);
+            }
+        });
     }
 
     private static boolean isSuccess(JSONObject response) {

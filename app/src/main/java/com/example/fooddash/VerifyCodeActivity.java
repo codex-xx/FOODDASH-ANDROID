@@ -9,9 +9,13 @@ import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
-import com.android.volley.Request;
-import com.android.volley.toolbox.JsonObjectRequest;
-import com.android.volley.toolbox.Volley;
+import java.util.HashMap;
+import java.util.Map;
+
+import okhttp3.ResponseBody;
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Response;
 
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -21,7 +25,7 @@ public class VerifyCodeActivity extends AppCompatActivity {
     EditText codeEdit;
     Button btnVerify;
     String email;
-    String URL_VERIFY_CODE = Constants.BASE_URL + "verify-code";
+    ApiService apiService;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -31,6 +35,7 @@ public class VerifyCodeActivity extends AppCompatActivity {
         codeEdit = findViewById(R.id.codeEdit);
         btnVerify = findViewById(R.id.btnVerify);
 
+        apiService = RetrofitClient.getApiService();
         email = getIntent().getStringExtra("email");
 
         btnVerify.setOnClickListener(v -> {
@@ -44,83 +49,73 @@ public class VerifyCodeActivity extends AppCompatActivity {
     }
 
     private void verifyCode(String email, String code) {
-        JSONObject postData = new JSONObject();
-        try {
-            postData.put("email", email);
-            postData.put("code", code);
-        } catch (JSONException e) {
-            Log.e("VerifyCodeActivity", "Failed to create JSON object", e);
-        }
+        Map<String, String> fields = new HashMap<>();
+        fields.put("email", email);
+        fields.put("code", code);
 
-        JsonObjectRequest request = new JsonObjectRequest(Request.Method.POST, URL_VERIFY_CODE, postData,
-                response -> {
-                    String fullResponseForDebugging;
-                    try {
-                        fullResponseForDebugging = response.toString(4);
-                    } catch (JSONException e) {
-                        fullResponseForDebugging = response.toString();
+        apiService.verifyCode(fields).enqueue(new Callback<ResponseBody>() {
+            @Override
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                try {
+                    String responseBody = response.body() != null ? response.body().string() : 
+                                         (response.errorBody() != null ? response.errorBody().string() : "");
+                    responseBody = responseBody.trim();
+                    Log.d("VerifyCodeActivity", "Full response from server: " + responseBody);
+
+                    JSONObject jsonResponse;
+                    if (responseBody.startsWith("{")) {
+                        jsonResponse = new JSONObject(responseBody);
+                    } else {
+                        jsonResponse = new JSONObject();
+                        jsonResponse.put("success", response.isSuccessful());
+                        jsonResponse.put("message", responseBody.isEmpty() ? (response.isSuccessful() ? "Success" : "Failed") : responseBody);
                     }
-                    Log.d("VerifyCodeActivity", "Full response from server: " + fullResponseForDebugging);
 
-                    try {
-                        boolean success = response.optBoolean("success", false);
-                        String message = response.getString("message");
+                    boolean success = response.isSuccessful() && jsonResponse.optBoolean("success", false);
+                    String message = jsonResponse.optString("message", "Request completed.");
 
-                        if (success) {
-                            // FIX: Get reset_token from inside "data" object
-                            JSONObject data = response.optJSONObject("data");
-                            String resetToken = "";
+                    if (success) {
+                        JSONObject data = jsonResponse.optJSONObject("data");
+                        String resetToken = "";
 
-                            if (data != null) {
-                                resetToken = data.optString("reset_token", "");
-                                if (resetToken.isEmpty()) {
-                                    resetToken = data.optString("resetToken", "");
-                                }
-                            }
-
+                        if (data != null) {
+                            resetToken = data.optString("reset_token", "");
                             if (resetToken.isEmpty()) {
-                                Log.e("VerifyCodeActivity", "Reset token not found in data object");
-                                new androidx.appcompat.app.AlertDialog.Builder(VerifyCodeActivity.this)
-                                        .setTitle("Backend Response Issue")
-                                        .setMessage("Code verified, but reset token not found.\n\nServer Response:\n" + fullResponseForDebugging)
-                                        .setPositiveButton(android.R.string.ok, null)
-                                        .show();
-                            } else {
-                                Toast.makeText(this, message, Toast.LENGTH_LONG).show();
-                                Log.d("VerifyCodeActivity", "Proceeding to ResetPasswordActivity with token: " + resetToken);
-
-                                Intent intent = new Intent(this, ResetPasswordActivity.class);
-                                intent.putExtra("email", email);
-                                intent.putExtra("reset_token", resetToken);
-                                startActivity(intent);
-                                finish();
+                                resetToken = data.optString("resetToken", "");
                             }
-                        } else {
-                            Toast.makeText(this, message, Toast.LENGTH_LONG).show();
                         }
-                    } catch (JSONException e) {
-                        Log.e("VerifyCodeActivity", "Failed to parse response: " + fullResponseForDebugging, e);
-                        Toast.makeText(this, "An error occurred parsing server response.", Toast.LENGTH_LONG).show();
-                    }
-                },
-                error -> {
-                    if (error.networkResponse != null && error.networkResponse.data != null) {
-                        try {
-                            String responseBody = new String(error.networkResponse.data, "utf-8");
-                            JSONObject data = new JSONObject(responseBody);
-                            String message = data.optString("message", "An unknown error occurred.");
-                            Toast.makeText(this, message, Toast.LENGTH_LONG).show();
-                        } catch (Exception e) {
-                            Log.e("VerifyCodeActivity", "Error parsing error response", e);
-                            Toast.makeText(this, "Failed to verify code. Check logs for details.", Toast.LENGTH_LONG).show();
+
+                        if (resetToken.isEmpty()) {
+                            Log.e("VerifyCodeActivity", "Reset token not found in data object");
+                            new androidx.appcompat.app.AlertDialog.Builder(VerifyCodeActivity.this)
+                                    .setTitle("Backend Response Issue")
+                                    .setMessage("Code verified, but reset token not found.\n\nServer Response:\n" + responseBody)
+                                    .setPositiveButton(android.R.string.ok, null)
+                                    .show();
+                        } else {
+                            Toast.makeText(VerifyCodeActivity.this, message, Toast.LENGTH_LONG).show();
+                            Log.d("VerifyCodeActivity", "Proceeding to ResetPasswordActivity with token: " + resetToken);
+
+                            Intent intent = new Intent(VerifyCodeActivity.this, ResetPasswordActivity.class);
+                            intent.putExtra("email", email);
+                            intent.putExtra("reset_token", resetToken);
+                            startActivity(intent);
+                            finish();
                         }
                     } else {
-                        Log.e("VerifyCodeActivity", "Volley Error", error);
-                        Toast.makeText(this, "Failed to verify code. Check network connection.", Toast.LENGTH_LONG).show();
+                        Toast.makeText(VerifyCodeActivity.this, message, Toast.LENGTH_LONG).show();
                     }
+                } catch (Exception e) {
+                    Log.e("VerifyCodeActivity", "Failed to parse response", e);
+                    Toast.makeText(VerifyCodeActivity.this, "An error occurred parsing server response.", Toast.LENGTH_LONG).show();
                 }
-        );
+            }
 
-        Volley.newRequestQueue(this).add(request);
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) {
+                Log.e("VerifyCodeActivity", "Retrofit Error", t);
+                Toast.makeText(VerifyCodeActivity.this, "Failed to verify code. Check network connection.", Toast.LENGTH_LONG).show();
+            }
+        });
     }
 }

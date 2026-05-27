@@ -14,10 +14,12 @@ import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import com.android.volley.Request;
-import com.android.volley.RequestQueue;
-import com.android.volley.toolbox.JsonObjectRequest;
-import com.android.volley.toolbox.Volley;
+import com.bumptech.glide.Glide;
+
+import okhttp3.ResponseBody;
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Response;
 
 import org.json.JSONException;
 import org.json.JSONArray;
@@ -46,7 +48,7 @@ public class DriverDashboard extends AppCompatActivity {
     private Button btnViewHistory;
     private Button btnLogout;
 
-    private RequestQueue requestQueue;
+    private ApiService apiService;
     private final Handler pollingHandler = new Handler(Looper.getMainLooper());
     private boolean isOnline = false;
     private JSONObject incomingOrder;
@@ -68,7 +70,7 @@ public class DriverDashboard extends AppCompatActivity {
             return;
         }
 
-        requestQueue = Volley.newRequestQueue(this);
+        apiService = RetrofitClient.getApiService();
 
         onlineSwitch = findViewById(R.id.onlineSwitch);
         driverVehicleTextView = findViewById(R.id.driverVehicleTextView);
@@ -176,45 +178,85 @@ public class DriverDashboard extends AppCompatActivity {
             return;
         }
 
-        String url = Constants.URL_ORDERS + "?vehicle_type=" + getVehicleType();
-        JsonObjectRequest request = new JsonObjectRequest(
-                Request.Method.GET,
-                url,
-                null,
-                response -> {
-                    JSONArray orders = extractOrders(response);
-                    selectIncomingAndActiveOrders(orders);
-                },
-                error -> fetchLegacyDriverOrders()
-        ) {
+        apiService.getDriverOrders().enqueue(new Callback<ResponseBody>() {
             @Override
-            public Map<String, String> getHeaders() {
-                return buildAuthHeaders();
-            }
-        };
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                try {
+                    String body = response.body() != null ? response.body().string() : 
+                                 (response.errorBody() != null ? response.errorBody().string() : "{}");
+                    
+                    if (response.code() == 404) {
+                        fetchLegacyDriverOrders();
+                        return;
+                    }
 
-        requestQueue.add(request);
+                    JSONObject jsonResponse = new JSONObject(body);
+                    JSONArray orders = extractOrders(jsonResponse);
+                    selectIncomingAndActiveOrders(orders);
+                } catch (Exception e) {
+                    onFailure(call, e);
+                }
+            }
+
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) {
+                fetchLegacyDriverOrders();
+            }
+        });
     }
 
     private void fetchLegacyDriverOrders() {
-        String url = Constants.URL_GET_DRIVER_ORDERS_LEGACY + "?vehicle_type=" + getVehicleType();
-        JsonObjectRequest request = new JsonObjectRequest(
-                Request.Method.GET,
-                url,
-                null,
-                response -> {
-                    JSONArray orders = extractOrders(response);
-                    selectIncomingAndActiveOrders(orders);
-                },
-                error -> Log.d(TAG, "No driver orders available")
-        ) {
+        apiService.getDriverOrdersLegacy().enqueue(new Callback<ResponseBody>() {
             @Override
-            public Map<String, String> getHeaders() {
-                return buildAuthHeaders();
-            }
-        };
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                try {
+                    String body = response.body() != null ? response.body().string() : 
+                                 (response.errorBody() != null ? response.errorBody().string() : "{}");
+                    
+                    if (response.code() == 404) {
+                        fetchDriverOrdersById();
+                        return;
+                    }
 
-        requestQueue.add(request);
+                    JSONObject jsonResponse = new JSONObject(body);
+                    JSONArray orders = extractOrders(jsonResponse);
+                    selectIncomingAndActiveOrders(orders);
+                } catch (Exception e) {
+                    fetchDriverOrdersById();
+                }
+            }
+
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) {
+                fetchDriverOrdersById();
+            }
+        });
+    }
+
+    private void fetchDriverOrdersById() {
+        int driverId = getDriverId();
+        if (driverId <= 0) return;
+
+        apiService.getOrdersByDriver(driverId).enqueue(new Callback<ResponseBody>() {
+            @Override
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                try {
+                    String body = response.body() != null ? response.body().string() : 
+                                 (response.errorBody() != null ? response.errorBody().string() : "{}");
+                    
+                    JSONObject jsonResponse = new JSONObject(body);
+                    JSONArray orders = extractOrders(jsonResponse);
+                    selectIncomingAndActiveOrders(orders);
+                } catch (Exception e) {
+                    // Fail silently
+                }
+            }
+
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) {
+                Log.d(TAG, "All driver order fetch attempts failed");
+            }
+        });
     }
 
     private JSONArray extractOrders(JSONObject response) {
@@ -244,6 +286,8 @@ public class DriverDashboard extends AppCompatActivity {
         activeOrder = null;
         int driverId = getDriverId();
 
+        Log.d(TAG, "Processing " + orders.length() + " orders for driverId: " + driverId);
+
         for (int i = 0; i < orders.length(); i++) {
             JSONObject order = orders.optJSONObject(i);
             if (order == null) {
@@ -256,6 +300,8 @@ public class DriverDashboard extends AppCompatActivity {
             int orderDriverId = -1;
             if (!order.isNull("driver_id")) {
                 orderDriverId = order.optInt("driver_id", -1);
+            } else if (order.has("driver_id") && order.optString("driver_id").equals("null")) {
+                orderDriverId = -1;
             }
 
             // Flow: pending -> accepted -> preparing -> ready -> picked_up -> arrived_at_restaurant -> out_for_delivery -> delivered
@@ -268,9 +314,12 @@ public class DriverDashboard extends AppCompatActivity {
 
             if (driverId > 0 && orderDriverId == driverId && isAcceptedByDriver) {
                 activeOrder = order;
+                Log.d(TAG, "Found active order: " + orderId);
                 continue;
             }
 
+            // Drivers should see orders that are confirmed/accepted by restaurant but not yet assigned to a driver
+            // Or orders that are ready for pickup
             boolean isAwaitingDriver = Constants.STATUS_ACCEPTED.equals(status) || 
                                        Constants.STATUS_PREPARING.equals(status) || 
                                        Constants.STATUS_READY.equals(status) ||
@@ -286,10 +335,17 @@ public class DriverDashboard extends AppCompatActivity {
                 }
                 
                 if (orderDriverId <= 0) {
-                    if (vehicleMatches(order) && incomingOrder == null) {
-                        incomingOrder = order;
+                    if (vehicleMatches(order)) {
+                        if (incomingOrder == null) {
+                            incomingOrder = order;
+                            Log.d(TAG, "Selected incoming order: " + orderId);
+                        }
                     }
+                } else {
+                    Log.d(TAG, "Order " + orderId + " already assigned to driver: " + orderDriverId);
                 }
+            } else {
+                Log.d(TAG, "Order " + orderId + " ignored due to status: " + status);
             }
         }
 
@@ -303,10 +359,18 @@ public class DriverDashboard extends AppCompatActivity {
         }
 
         String orderVehicle = normalizeValue(order.optString("delivery_type", order.optString("vehicle_type", "")));
+        String driverVehicle = getVehicleType();
+        
+        // If order doesn't specify a vehicle, any driver can take it
         if (TextUtils.isEmpty(orderVehicle)) {
             return true;
         }
-        return orderVehicle.equals(getVehicleType());
+        
+        boolean matches = orderVehicle.equals(driverVehicle);
+        if (!matches) {
+            Log.d(TAG, "Vehicle mismatch: order=" + orderVehicle + ", driver=" + driverVehicle);
+        }
+        return matches;
     }
 
     private boolean isOrderWithinAllowedRadius(JSONObject order) {
@@ -316,7 +380,10 @@ public class DriverDashboard extends AppCompatActivity {
 
         Double riderLat = getStoredDouble("latitude");
         Double riderLng = getStoredDouble("longitude");
+        
+        // If driver location is not available, don't filter out by radius
         if (riderLat == null || riderLng == null) {
+            Log.d(TAG, "Driver location missing, skipping radius filter");
             return true;
         }
 
@@ -324,12 +391,26 @@ public class DriverDashboard extends AppCompatActivity {
         Double restaurantLng = getOrderDouble(order, "restaurant_longitude", "restaurant_lng", "merchant_longitude", "lng");
         Double radiusKm = getOrderDouble(order, "delivery_radius", "delivery_zone_radius_km", "delivery_radius_km", "radius_km");
 
-        if (restaurantLat == null || restaurantLng == null || radiusKm == null || radiusKm <= 0d) {
+        // If order/restaurant data or radius limit is missing, don't filter out
+        if (restaurantLat == null || restaurantLng == null) {
+            Log.d(TAG, "Restaurant location missing for order, skipping radius filter");
+            return true;
+        }
+        
+        if (radiusKm == null || radiusKm <= 0d) {
+            // Default to a large radius or skip filtering if not specified
+            Log.d(TAG, "Radius limit missing for order, skipping radius filter");
             return true;
         }
 
         double distanceKm = haversineKm(riderLat, riderLng, restaurantLat, restaurantLng);
-        return distanceKm <= radiusKm;
+        boolean withinRadius = distanceKm <= radiusKm;
+        
+        if (!withinRadius) {
+            Log.d(TAG, String.format(Locale.US, "Order filtered out: distance=%.2fkm, radius=%.2fkm", distanceKm, radiusKm));
+        }
+        
+        return withinRadius;
     }
 
     private Double getStoredDouble(String key) {
@@ -441,84 +522,102 @@ public class DriverDashboard extends AppCompatActivity {
             return;
         }
 
-        String token = AuthSessionManager.getValidAccessTokenOrNull(this);
-        JSONObject payload = new JSONObject();
         int orderId = incomingOrder.optInt("id", incomingOrder.optInt("order_id", -1));
         String currentStatus = normalizeStatus(incomingOrder.optString("status", Constants.STATUS_PENDING));
-        
-        // Auto-accept: if pending, move to accepted. If already further, keep current status.
+        // Force status to "accepted" if it's currently pending
         String newStatus = Constants.STATUS_PENDING.equals(currentStatus) ? Constants.STATUS_ACCEPTED : currentStatus;
 
-        try {
-            payload.put("order_id", orderId);
-            payload.put("orderid", orderId);
-            payload.put("driver_id", getDriverId());
-            payload.put("user_id", getDriverId());
-            payload.put("driver_name", getDriverName());
-            payload.put("driver_phone", getDriverPhone());
-            payload.put("driver_email", getDriverEmail());
-            payload.put("status", newStatus);
-            payload.put("api_token", token);
-            payload.put("token", token);
-        } catch (JSONException e) {
-            return;
+        String token = AuthSessionManager.getValidAccessTokenOrNull(this);
+        Map<String, String> fields = new HashMap<>();
+        String idStr = String.valueOf(orderId);
+        String driverIdStr = String.valueOf(getDriverId());
+        
+        fields.put("id", idStr);
+        fields.put("order_id", idStr);
+        fields.put("orderid", idStr);
+        fields.put("driver_id", driverIdStr);
+        fields.put("user_id", driverIdStr);
+        fields.put("status", newStatus);
+        fields.put("order_status", newStatus);
+        fields.put("new_status", newStatus);
+        fields.put("api_token", token);
+        fields.put("token", token);
+
+        tryAcceptOrder(fields, 0);
+    }
+
+    private void tryAcceptOrder(Map<String, String> fields, int attempt) {
+        Call<ResponseBody> call;
+        String url;
+        int orderId = Integer.parseInt(fields.get("id"));
+
+        switch (attempt) {
+            case 0: 
+                url = Constants.URL_DRIVER_ACCEPT_ORDER;
+                call = apiService.acceptOrder(url, fields); 
+                break;
+            case 1: 
+                url = Constants.URL_DRIVER_ACCEPT_ORDER_LEGACY;
+                call = apiService.acceptOrderLegacy(url, fields); 
+                break;
+            case 2: 
+                url = Constants.BASE_URL + "driver_accept_order.php";
+                call = apiService.acceptOrder(url, fields); 
+                break;
+            case 3: 
+                url = Constants.BASE_URL + "orders/" + orderId + "/accept";
+                call = apiService.acceptOrder(url, fields); 
+                break;
+            case 4: 
+                url = Constants.BASE_URL + "orders/" + orderId + "/assign";
+                call = apiService.acceptOrder(url, fields); 
+                break;
+            case 5: 
+                url = Constants.URL_UPDATE_STATUS;
+                call = apiService.updateOrderStatus(url, fields); 
+                break;
+            case 6: 
+                url = Constants.URL_UPDATE_ORDER_STATUS_LEGACY;
+                call = apiService.updateOrderStatusLegacy(url, fields); 
+                break;
+            case 7:
+                url = Constants.BASE_URL + "orders/" + orderId;
+                call = apiService.updateOrderStatus(url, fields);
+                break;
+            default:
+                Log.e(TAG, "All accept order attempts failed");
+                Toast.makeText(DriverDashboard.this, "Failed to accept order. Check backend logs.", Toast.LENGTH_SHORT).show();
+                return;
         }
 
-        JsonObjectRequest request = new JsonObjectRequest(
-                Request.Method.POST,
-                Constants.URL_DRIVER_ACCEPT_ORDER,
-                payload,
-                response -> handleAcceptSuccess(),
-                error -> {
-                    Log.d(TAG, "Accept order specialized failed, trying legacy accept_order.php", error);
-                    acceptOrderLegacySpecialized(payload);
-                }
-        ) {
-            @Override
-            public Map<String, String> getHeaders() {
-                return buildAuthHeaders();
-            }
-        };
+        Log.d(TAG, "Attempting to accept order #" + orderId + " via: " + url);
 
-        requestQueue.add(request);
-    }
-
-    private void acceptOrderLegacySpecialized(JSONObject payload) {
-        JsonObjectRequest request = new JsonObjectRequest(
-                Request.Method.POST,
-                Constants.URL_DRIVER_ACCEPT_ORDER_LEGACY,
-                payload,
-                response -> handleAcceptSuccess(),
-                error -> {
-                    Log.d(TAG, "Legacy accept_order.php failed, trying general update_status", error);
-                    acceptOrderViaGeneralStatus(payload);
-                }
-        ) {
+        call.enqueue(new Callback<ResponseBody>() {
             @Override
-            public Map<String, String> getHeaders() {
-                return buildAuthHeaders();
-            }
-        };
-        requestQueue.add(request);
-    }
-
-    private void acceptOrderViaGeneralStatus(JSONObject payload) {
-        JsonObjectRequest request = new JsonObjectRequest(
-                Request.Method.POST,
-                Constants.URL_UPDATE_STATUS,
-                payload,
-                response -> handleAcceptSuccess(),
-                error -> {
-                    Log.d(TAG, "General update_status failed, trying legacy update_status.php", error);
-                    acceptOrderLegacy(payload);
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                try {
+                    String body = response.body() != null ? response.body().string() : 
+                                 (response.errorBody() != null ? response.errorBody().string() : "");
+                    
+                    if (response.isSuccessful()) {
+                        Log.d(TAG, "Accept success via " + url + ": " + body);
+                        handleAcceptSuccess();
+                    } else {
+                        Log.w(TAG, "Accept attempt " + attempt + " failed (" + url + ") code: " + response.code() + " body: " + body);
+                        tryAcceptOrder(fields, attempt + 1);
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "Error reading accept response", e);
+                    tryAcceptOrder(fields, attempt + 1);
                 }
-        ) {
-            @Override
-            public Map<String, String> getHeaders() {
-                return buildAuthHeaders();
             }
-        };
-        requestQueue.add(request);
+
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) {
+                Log.e(TAG, "Accept attempt " + attempt + " network error (" + url + ")", t);
+                tryAcceptOrder(fields, attempt + 1);
+            }
+        });
     }
 
     private void handleAcceptSuccess() {
@@ -531,25 +630,6 @@ public class DriverDashboard extends AppCompatActivity {
         
         Toast.makeText(this, "Order Accepted!", Toast.LENGTH_SHORT).show();
         openActiveOrderPage();
-    }
-
-    private void acceptOrderLegacy(JSONObject payload) {
-        JsonObjectRequest request = new JsonObjectRequest(
-                Request.Method.POST,
-                Constants.URL_UPDATE_ORDER_STATUS_LEGACY,
-                payload,
-                response -> handleAcceptSuccess(),
-                error -> {
-                    Log.e(TAG, "All accept order attempts failed", error);
-                    Toast.makeText(this, "Failed to accept order. Check backend endpoints.", Toast.LENGTH_SHORT).show();
-                }
-        ) {
-            @Override
-            public Map<String, String> getHeaders() {
-                return buildAuthHeaders();
-            }
-        };
-        requestQueue.add(request);
     }
 
     private void openActiveOrderPage() {
@@ -617,22 +697,17 @@ public class DriverDashboard extends AppCompatActivity {
         String apiToken = AuthSessionManager.getValidAccessTokenOrNull(this);
         if (apiToken.isEmpty()) return;
 
-        JsonObjectRequest request = new JsonObjectRequest(
-                Request.Method.GET,
-                URL_GET_PROFILE,
-                null,
-                response -> {
-                },
-                error -> { }
-        ) {
+        apiService.getProfile().enqueue(new Callback<ResponseBody>() {
             @Override
-            public java.util.Map<String, String> getHeaders() {
-                java.util.Map<String, String> headers = new java.util.HashMap<>();
-                headers.put("Authorization", "Bearer " + apiToken);
-                return headers;
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                // Handle profile if needed
             }
-        };
-        Volley.newRequestQueue(this).add(request);
+
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) {
+                // Handle failure
+            }
+        });
     }
 
     private String normalizeValue(String value) {

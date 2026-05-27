@@ -15,11 +15,10 @@ import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
-import com.android.volley.Request;
-import com.android.volley.RequestQueue;
-import com.android.volley.toolbox.JsonObjectRequest;
-import com.android.volley.toolbox.Volley;
-// Glide not required here after moving driver UI to OrderTrackingActivity
+import okhttp3.ResponseBody;
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Response;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -45,7 +44,7 @@ public class ActiveOrderActivity extends AppCompatActivity {
     // driver UI moved to customer order listing (OrderTrackingActivity)
     private Button btnPreparing, btnReady, btnArrived, btnPickedUp, btnOnTheWay, btnDelivered;
 
-    private RequestQueue requestQueue;
+    private ApiService apiService;
     private JSONObject activeOrder;
     private int orderId = -1;
     private final Handler statusPollingHandler = new Handler(Looper.getMainLooper());
@@ -61,7 +60,7 @@ public class ActiveOrderActivity extends AppCompatActivity {
             return;
         }
 
-        requestQueue = Volley.newRequestQueue(this);
+        apiService = RetrofitClient.getApiService();
 
         activeOrderIdText = findViewById(R.id.activeOrderIdText);
         activeCustomerName = findViewById(R.id.activeCustomerName);
@@ -133,55 +132,70 @@ public class ActiveOrderActivity extends AppCompatActivity {
     private void fetchFullOrderDetails() {
         if (orderId <= 0) return;
 
-        String url = Constants.URL_ORDERS + "/" + orderId;
-        JsonObjectRequest request = new JsonObjectRequest(
-                Request.Method.GET,
-                url,
-                null,
-                response -> {
-                    JSONObject freshOrder = response.optJSONObject("order");
-                    if (freshOrder == null) freshOrder = response.optJSONObject("data");
-                    if (freshOrder == null) freshOrder = response;
+        apiService.getOrderDetails(orderId).enqueue(new Callback<ResponseBody>() {
+            @Override
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                try {
+                    String body = response.body() != null ? response.body().string() : 
+                                 (response.errorBody() != null ? response.errorBody().string() : "{}");
+                    JSONObject jsonResponse = new JSONObject(body);
+                    
+                    JSONObject freshOrder = jsonResponse.optJSONObject("order");
+                    if (freshOrder == null) freshOrder = jsonResponse.optJSONObject("data");
+                    if (freshOrder == null) freshOrder = jsonResponse;
 
                     if (freshOrder != null && freshOrder.length() > 0) {
                         activeOrder = freshOrder;
                         orderId = activeOrder.optInt("id", activeOrder.optInt("order_id", orderId));
                         renderOrderDetails();
                     }
-                },
-                error -> fetchFullOrderDetailsLegacy()
-        ) {
-            @Override
-            public Map<String, String> getHeaders() {
-                return buildAuthHeaders();
+                } catch (Exception e) {
+                    onFailure(call, e);
+                }
             }
-        };
-        requestQueue.add(request);
+
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) {
+                fetchFullOrderDetailsLegacy();
+            }
+        });
     }
 
     private void fetchFullOrderDetailsLegacy() {
-        String url = Constants.URL_GET_ORDERS_LEGACY + "?order_id=" + orderId;
-        JsonObjectRequest request = new JsonObjectRequest(
-                Request.Method.GET,
-                url,
-                null,
-                response -> {
-                    JSONArray orders = response.optJSONArray("orders");
-                    if (orders == null) orders = response.optJSONArray("data");
+        apiService.getOrderStatusLegacy(orderId).enqueue(new Callback<ResponseBody>() {
+            @Override
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                try {
+                    String body = response.body() != null ? response.body().string() : "{}";
+                    JSONObject jsonResponse = new JSONObject(body);
+                    
+                    // Legacy get_order_status.php might return status only or full object
+                    // Adjust based on typical legacy responses
+                    if (jsonResponse.has("status")) {
+                         // Minimal update
+                    }
+                    
+                    JSONArray orders = jsonResponse.optJSONArray("orders");
+                    if (orders == null) orders = jsonResponse.optJSONArray("data");
                     if (orders != null && orders.length() > 0) {
                         activeOrder = orders.optJSONObject(0);
                         orderId = activeOrder.optInt("id", activeOrder.optInt("order_id", orderId));
                         renderOrderDetails();
+                    } else if (jsonResponse.has("id") || jsonResponse.has("order_id")) {
+                        activeOrder = jsonResponse;
+                        orderId = activeOrder.optInt("id", activeOrder.optInt("order_id", orderId));
+                        renderOrderDetails();
                     }
-                },
-                error -> Log.e(TAG, "Failed to fetch order details from all sources")
-        ) {
-            @Override
-            public Map<String, String> getHeaders() {
-                return buildAuthHeaders();
+                } catch (Exception e) {
+                    // Fail silently
+                }
             }
-        };
-        requestQueue.add(request);
+
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) {
+                Log.e(TAG, "Failed to fetch order details from all sources");
+            }
+        });
     }
 
     private void renderOrderDetails() {
@@ -369,48 +383,54 @@ public class ActiveOrderActivity extends AppCompatActivity {
         updateButtonVisibilities(status);
 
         String token = AuthSessionManager.getValidAccessTokenOrNull(this);
-        JSONObject payload = new JSONObject();
+        Map<String, String> fields = new HashMap<>();
         try {
             int driverId = getUserId();
-            payload.put("id", orderId);
-            payload.put("order_id", orderId);
-            payload.put("orderid", orderId);
-            payload.put("driver_id", driverId);
-            payload.put("user_id", driverId);
-            payload.put("status", status);
-            payload.put("order_status", status);
-            payload.put("new_status", status);
-            payload.put("api_token", token);
-            payload.put("token", token);
-        } catch (JSONException e) {
+            fields.put("id", String.valueOf(orderId));
+            fields.put("order_id", String.valueOf(orderId));
+            fields.put("orderid", String.valueOf(orderId));
+            fields.put("driver_id", String.valueOf(driverId));
+            fields.put("user_id", String.valueOf(driverId));
+            fields.put("status", status);
+            fields.put("order_status", status);
+            fields.put("new_status", status);
+            fields.put("api_token", token);
+            fields.put("token", token);
+        } catch (Exception e) {
             return;
         }
 
-        tryUpdateOrderStatus(payload, status, 0);
+        tryUpdateOrderStatus(fields, status, 0);
     }
 
-    private void tryUpdateOrderStatus(JSONObject payload, String status, int attempt) {
-        String url;
-        int method = Request.Method.POST;
+    private void tryUpdateOrderStatus(Map<String, String> fields, String status, int attempt) {
+        Call<ResponseBody> call;
 
         switch (attempt) {
-            case 0: url = Constants.URL_UPDATE_STATUS; break;
-            case 1: url = Constants.URL_ORDERS + "/" + orderId + "/status"; break;
-            case 2: url = Constants.URL_UPDATE_ORDER_STATUS_LEGACY; break;
+            case 0: call = apiService.updateOrderStatus(Constants.URL_UPDATE_STATUS, fields); break;
+            case 1: call = apiService.updateOrderStatusWithId(orderId, fields); break;
+            case 2: call = apiService.updateOrderStatusLegacy(Constants.URL_UPDATE_ORDER_STATUS_LEGACY, fields); break;
             default:
                 Log.e(TAG, "Update failed after attempts");
                 fetchFullOrderDetails(); 
                 return;
         }
 
-        JsonObjectRequest request = new JsonObjectRequest(method, url, payload,
-                response -> handleStatusUpdateSuccess(status),
-                error -> tryUpdateOrderStatus(payload, status, attempt + 1)
-        ) {
+        call.enqueue(new Callback<ResponseBody>() {
             @Override
-            public Map<String, String> getHeaders() { return buildAuthHeaders(); }
-        };
-        requestQueue.add(request);
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                if (response.isSuccessful()) {
+                    handleStatusUpdateSuccess(status);
+                } else {
+                    tryUpdateOrderStatus(fields, status, attempt + 1);
+                }
+            }
+
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) {
+                tryUpdateOrderStatus(fields, status, attempt + 1);
+            }
+        });
     }
 
     private void handleStatusUpdateSuccess(String status) {

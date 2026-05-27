@@ -17,10 +17,10 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
-import com.android.volley.Request;
-import com.android.volley.RequestQueue;
-import com.android.volley.toolbox.JsonObjectRequest;
-import com.android.volley.toolbox.Volley;
+import okhttp3.ResponseBody;
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Response;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -42,7 +42,7 @@ public class DriverHistoryActivity extends AppCompatActivity {
     private List<JSONObject> historyList = new ArrayList<>();
     private SwipeRefreshLayout swipeRefreshLayout;
     private TextView noHistoryTextView;
-    private RequestQueue requestQueue;
+    private ApiService apiService;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -55,7 +55,7 @@ public class DriverHistoryActivity extends AppCompatActivity {
             return;
         }
 
-        requestQueue = Volley.newRequestQueue(this);
+        apiService = RetrofitClient.getApiService();
 
         historyRecyclerView = findViewById(R.id.historyRecyclerView);
         swipeRefreshLayout = findViewById(R.id.swipeRefreshLayout);
@@ -98,65 +98,55 @@ public class DriverHistoryActivity extends AppCompatActivity {
     private void fetchHistory() {
         if (swipeRefreshLayout != null) swipeRefreshLayout.setRefreshing(true);
         int driverId = getDriverId();
-        String token = getApiToken();
 
         if (driverId <= 0) {
             if (swipeRefreshLayout != null) swipeRefreshLayout.setRefreshing(false);
             return;
         }
 
-        // Fetch all orders for this driver and filter delivered locally.
-        // Some API variants ignore combined driver/status filters, which would hide valid history items.
-        String url = Constants.URL_ORDERS + "?driver_id=" + driverId;
-        
-        JsonObjectRequest request = new JsonObjectRequest(
-                Request.Method.GET,
-                url,
-                null,
-                response -> {
-                    if (swipeRefreshLayout != null) swipeRefreshLayout.setRefreshing(false);
-                    parseHistory(response);
-                },
-                error -> {
-                    Log.e(TAG, "History fetch failed, trying legacy", error);
-                    fetchHistoryLegacy(driverId, token);
-                }
-        ) {
+        apiService.getOrdersByDriver(driverId).enqueue(new Callback<ResponseBody>() {
             @Override
-            public Map<String, String> getHeaders() {
-                Map<String, String> headers = new HashMap<>();
-                headers.put("Authorization", "Bearer " + token);
-                return headers;
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                if (swipeRefreshLayout != null) swipeRefreshLayout.setRefreshing(false);
+                try {
+                    String body = response.body() != null ? response.body().string() : 
+                                 (response.errorBody() != null ? response.errorBody().string() : "{}");
+                    JSONObject jsonResponse = new JSONObject(body);
+                    parseHistory(jsonResponse);
+                } catch (Exception e) {
+                    onFailure(call, e);
+                }
             }
-        };
 
-        requestQueue.add(request);
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) {
+                Log.e(TAG, "History fetch failed, trying legacy", t);
+                fetchHistoryLegacy(driverId);
+            }
+        });
     }
 
-    private void fetchHistoryLegacy(int driverId, String token) {
-        String url = Constants.URL_GET_DRIVER_ORDERS_LEGACY + "?driver_id=" + driverId;
-        
-        JsonObjectRequest request = new JsonObjectRequest(
-                Request.Method.GET,
-                url,
-                null,
-                response -> {
-                    if (swipeRefreshLayout != null) swipeRefreshLayout.setRefreshing(false);
-                    parseHistory(response);
-                },
-                error -> {
-                    if (swipeRefreshLayout != null) swipeRefreshLayout.setRefreshing(false);
-                    Toast.makeText(this, "Failed to load history.", Toast.LENGTH_SHORT).show();
-                }
-        ) {
+    private void fetchHistoryLegacy(int driverId) {
+        apiService.getDriverOrdersLegacyWithDriverId(driverId).enqueue(new Callback<ResponseBody>() {
             @Override
-            public Map<String, String> getHeaders() {
-                Map<String, String> headers = new HashMap<>();
-                headers.put("Authorization", "Bearer " + token);
-                return headers;
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                if (swipeRefreshLayout != null) swipeRefreshLayout.setRefreshing(false);
+                try {
+                    String body = response.body() != null ? response.body().string() : 
+                                 (response.errorBody() != null ? response.errorBody().string() : "{}");
+                    JSONObject jsonResponse = new JSONObject(body);
+                    parseHistory(jsonResponse);
+                } catch (Exception e) {
+                    onFailure(call, e);
+                }
             }
-        };
-        requestQueue.add(request);
+
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) {
+                if (swipeRefreshLayout != null) swipeRefreshLayout.setRefreshing(false);
+                Toast.makeText(DriverHistoryActivity.this, "Failed to load history.", Toast.LENGTH_SHORT).show();
+            }
+        });
     }
 
     private void parseHistory(JSONObject response) {

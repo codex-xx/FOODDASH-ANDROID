@@ -20,6 +20,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="Item name"
+        android:textColor="@color/black"
         android:textStyle="bold"
         android:textSize="15sp" />
 
@@ -29,6 +30,8 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="4dp"
         android:text="Qty and price"
+        android:textColor="@color/black"
+        android:textStyle="bold"
         android:textSize="13sp" />
 
 </LinearLayout>

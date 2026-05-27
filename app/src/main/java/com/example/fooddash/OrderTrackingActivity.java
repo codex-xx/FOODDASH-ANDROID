@@ -15,10 +15,10 @@ import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
-import com.android.volley.Request;
-import com.android.volley.RequestQueue;
-import com.android.volley.toolbox.JsonObjectRequest;
-import com.android.volley.toolbox.Volley;
+import okhttp3.ResponseBody;
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Response;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -37,7 +37,7 @@ public class OrderTrackingActivity extends AppCompatActivity {
     private static final long POLL_MS = 5000L;
 
     private final Handler pollingHandler = new Handler(Looper.getMainLooper());
-    private RequestQueue requestQueue;
+    private ApiService apiService;
 
     private LinearLayout ordersContainer;
     private Button btnBackToDashboard;
@@ -77,7 +77,7 @@ public class OrderTrackingActivity extends AppCompatActivity {
             SharedPreferences prefs = getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
             expectedOrderId = prefs.getInt("last_active_order_id", -1);
         }
-        requestQueue = Volley.newRequestQueue(this);
+        apiService = RetrofitClient.getApiService();
 
         ordersContainer = findViewById(R.id.ordersContainer);
         btnBackToDashboard = findViewById(R.id.btnBackToDashboard);
@@ -138,14 +138,47 @@ public class OrderTrackingActivity extends AppCompatActivity {
             return;
         }
 
-        // Try both modern and legacy endpoints to ensure we find the order
-        fetchOrdersFromEndpoint(Constants.URL_ORDERS + "?user_id=" + userId, false);
-        fetchOrdersFromEndpoint(Constants.URL_ORDERS + "/" + userId, false);
-        fetchOrdersFromEndpoint(Constants.URL_GET_ORDERS_LEGACY + "?user_id=" + userId, true);
-        if (expectedOrderId > 0) {
-            fetchOrdersFromEndpoint(Constants.URL_ORDERS + "/" + expectedOrderId, false);
-            fetchOrdersFromEndpoint(Constants.URL_GET_ORDERS_LEGACY + "?order_id=" + expectedOrderId, true);
-        }
+        apiService.getOrders(userId).enqueue(new Callback<ResponseBody>() {
+            @Override
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                try {
+                    String body = response.body() != null ? response.body().string() : "{}";
+                    JSONObject jsonResponse = new JSONObject(body);
+                    List<JSONObject> orders = extractOrders(jsonResponse);
+                    if (!orders.isEmpty()) {
+                        renderOrders(orders);
+                    } else if (expectedOrderId > 0 && ordersContainer.getChildCount() == 0) {
+                        showFallbackActiveOrder(expectedOrderId, Constants.STATUS_PENDING);
+                    }
+                } catch (Exception e) {
+                    onFailure(call, e);
+                }
+            }
+
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) {
+                if (expectedOrderId > 0 && ordersContainer.getChildCount() == 0) {
+                    showFallbackActiveOrder(expectedOrderId, Constants.STATUS_PENDING);
+                }
+            }
+        });
+
+        apiService.getOrdersLegacy(userId).enqueue(new Callback<ResponseBody>() {
+            @Override
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                try {
+                    String body = response.body() != null ? response.body().string() : "{}";
+                    JSONObject jsonResponse = new JSONObject(body);
+                    List<JSONObject> orders = extractOrders(jsonResponse);
+                    if (!orders.isEmpty()) {
+                        renderOrders(orders);
+                    }
+                } catch (Exception ignored) {}
+            }
+
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) {}
+        });
     }
 
     private void loadCachedActiveOrder() {
@@ -286,34 +319,6 @@ public class OrderTrackingActivity extends AppCompatActivity {
         intent.putExtra("cart_items_json", cartJson);
         startActivity(intent);
         finish();
-    }
-
-    private void fetchOrdersFromEndpoint(String url, boolean isLegacy) {
-        JsonObjectRequest request = new JsonObjectRequest(
-                Request.Method.GET,
-                url,
-                null,
-                response -> {
-                    List<JSONObject> orders = extractOrders(response);
-                    if (!orders.isEmpty()) {
-                        renderOrders(orders);
-                    } else if (expectedOrderId > 0 && ordersContainer.getChildCount() == 0) {
-                        showFallbackActiveOrder(expectedOrderId, Constants.STATUS_PENDING);
-                    }
-                },
-                error -> {
-                    if (isLegacy) Log.e(TAG, "Failed to poll legacy orders: " + error.toString());
-                    if (expectedOrderId > 0 && ordersContainer.getChildCount() == 0) {
-                        showFallbackActiveOrder(expectedOrderId, Constants.STATUS_PENDING);
-                    }
-                }
-        ) {
-            @Override
-            public Map<String, String> getHeaders() {
-                return buildAuthHeaders();
-            }
-        };
-        requestQueue.add(request);
     }
 
     private List<JSONObject> extractOrders(JSONObject response) {

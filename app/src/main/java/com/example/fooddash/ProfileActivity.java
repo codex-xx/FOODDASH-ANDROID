@@ -12,8 +12,11 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.ContextCompat;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -34,6 +37,28 @@ public class ProfileActivity extends AppCompatActivity {
     private Button tabProfileButton;
     private TextView tabCartBadgeTextView;
     private TextView tabNotificationsBadgeTextView;
+
+    private final ActivityResultLauncher<Intent> locationPickerLauncher = registerForActivityResult(
+            new ActivityResultContracts.StartActivityForResult(),
+            result -> {
+                if (result.getResultCode() == RESULT_OK && result.getData() != null) {
+                    String address = result.getData().getStringExtra(CustomerLocationPickerActivity.EXTRA_ADDRESS);
+                    double lat = result.getData().getDoubleExtra(CustomerLocationPickerActivity.EXTRA_LATITUDE, 0);
+                    double lng = result.getData().getDoubleExtra(CustomerLocationPickerActivity.EXTRA_LONGITUDE, 0);
+
+                    if (!TextUtils.isEmpty(address)) {
+                        getSharedPreferences("fooddash_prefs", MODE_PRIVATE)
+                                .edit()
+                                .putString("delivery_address", address)
+                                .putString("latitude", String.valueOf(lat))
+                                .putString("longitude", String.valueOf(lng))
+                                .apply();
+                        bindProfileData();
+                        Toast.makeText(this, "Address updated from map", Toast.LENGTH_SHORT).show();
+                    }
+                }
+            }
+    );
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -108,15 +133,22 @@ public class ProfileActivity extends AppCompatActivity {
         input.setText(getSharedPreferences("fooddash_prefs", MODE_PRIVATE).getString("delivery_address", ""));
         input.setPadding(32, 24, 32, 24);
 
+        Button btnPickMap = new Button(this);
+        btnPickMap.setText("Pick from Map");
+        btnPickMap.setBackgroundTintList(ContextCompat.getColorStateList(this, R.color.brand_primary));
+        btnPickMap.setTextColor(ContextCompat.getColor(this, R.color.white));
+        
         LinearLayout wrapper = new LinearLayout(this);
+        wrapper.setOrientation(LinearLayout.VERTICAL);
         wrapper.setPadding(32, 12, 32, 0);
         wrapper.addView(input);
+        wrapper.addView(btnPickMap);
 
-        new AlertDialog.Builder(this)
+        AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("Edit Saved Address")
                 .setView(wrapper)
                 .setNegativeButton("Cancel", null)
-                .setPositiveButton("Save", (dialog, which) -> {
+                .setPositiveButton("Save", (d, which) -> {
                     String value = input.getText().toString().trim();
                     if (TextUtils.isEmpty(value)) {
                         Toast.makeText(this, "Address cannot be empty", Toast.LENGTH_SHORT).show();
@@ -129,7 +161,15 @@ public class ProfileActivity extends AppCompatActivity {
                     bindProfileData();
                     Toast.makeText(this, "Address updated", Toast.LENGTH_SHORT).show();
                 })
-                .show();
+                .create();
+
+        btnPickMap.setOnClickListener(v -> {
+            dialog.dismiss();
+            Intent intent = new Intent(this, CustomerLocationPickerActivity.class);
+            locationPickerLauncher.launch(intent);
+        });
+
+        dialog.show();
     }
 
     private void showPaymentDialog() {

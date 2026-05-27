@@ -9,9 +9,13 @@ import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
-import com.android.volley.Request;
-import com.android.volley.toolbox.JsonObjectRequest;
-import com.android.volley.toolbox.Volley;
+import java.util.HashMap;
+import java.util.Map;
+
+import okhttp3.ResponseBody;
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Response;
 
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -22,7 +26,7 @@ public class ResetPasswordActivity extends AppCompatActivity {
     Button btnResetPassword;
     String email;
     String resetToken;
-    String URL_RESET_PASSWORD = Constants.BASE_URL + "reset-password";
+    ApiService apiService;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -33,6 +37,7 @@ public class ResetPasswordActivity extends AppCompatActivity {
         confirmPasswordEdit = findViewById(R.id.confirmPasswordEdit);
         btnResetPassword = findViewById(R.id.btnResetPassword);
 
+        apiService = RetrofitClient.getApiService();
         email = getIntent().getStringExtra("email");
         resetToken = getIntent().getStringExtra("reset_token");
         Log.d("ResetPasswordActivity", "Received email: " + email + ", resetToken: " + resetToken);
@@ -56,50 +61,49 @@ public class ResetPasswordActivity extends AppCompatActivity {
     }
 
     private void resetPassword(String email, String password, String resetToken) {
-        JSONObject postData = new JSONObject();
-        try {
-            postData.put("email", email);
-            postData.put("password", password);
-            postData.put("reset_token", resetToken);
-        } catch (JSONException e) {
-            Log.e("ResetPasswordActivity", "Failed to create JSON object", e);
-        }
+        Map<String, String> fields = new HashMap<>();
+        fields.put("email", email);
+        fields.put("password", password);
+        fields.put("reset_token", resetToken);
 
-        Log.d("ResetPasswordActivity", "Sending reset password request with data: " + postData.toString());
+        Log.d("ResetPasswordActivity", "Sending reset password request for: " + email);
 
-        JsonObjectRequest request = new JsonObjectRequest(Request.Method.POST, URL_RESET_PASSWORD, postData,
-                response -> {
-                    try {
-                        String message = response.getString("message");
-                        Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+        apiService.resetPassword(fields).enqueue(new Callback<ResponseBody>() {
+            @Override
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                try {
+                    String responseBody = response.body() != null ? response.body().string() : 
+                                         (response.errorBody() != null ? response.errorBody().string() : "");
+                    responseBody = responseBody.trim();
 
-                        Intent intent = new Intent(this, LoginActivity.class);
+                    JSONObject jsonResponse;
+                    if (responseBody.startsWith("{")) {
+                        jsonResponse = new JSONObject(responseBody);
+                    } else {
+                        jsonResponse = new JSONObject();
+                        jsonResponse.put("success", response.isSuccessful());
+                        jsonResponse.put("message", responseBody.isEmpty() ? (response.isSuccessful() ? "Success" : "Failed") : responseBody);
+                    }
+
+                    String message = jsonResponse.optString("message", "Request completed.");
+                    Toast.makeText(ResetPasswordActivity.this, message, Toast.LENGTH_LONG).show();
+
+                    if (response.isSuccessful()) {
+                        Intent intent = new Intent(ResetPasswordActivity.this, LoginActivity.class);
                         startActivity(intent);
                         finish();
-                    } catch (JSONException e) {
-                        Log.e("ResetPasswordActivity", "Failed to parse success response", e);
-                        Toast.makeText(this, "An error occurred.", Toast.LENGTH_LONG).show();
                     }
-                },
-                error -> {
-                    if (error.networkResponse != null && error.networkResponse.data != null) {
-                        try {
-                            String responseBody = new String(error.networkResponse.data, "utf-8");
-                            JSONObject data = new JSONObject(responseBody);
-                            String message = data.optString("message", "An unknown error occurred.");
-                            Log.e("ResetPasswordActivity", "Reset password failed: " + message);
-                            Toast.makeText(this, message, Toast.LENGTH_LONG).show();
-                        } catch (Exception e) {
-                            Log.e("ResetPasswordActivity", "Error parsing error response", e);
-                            Toast.makeText(this, "Failed to reset password. Check logs for details.", Toast.LENGTH_LONG).show();
-                        }
-                    } else {
-                        Log.e("ResetPasswordActivity", "Volley Error", error);
-                        Toast.makeText(this, "Failed to reset password. Check network connection.", Toast.LENGTH_LONG).show();
-                    }
+                } catch (Exception e) {
+                    Log.e("ResetPasswordActivity", "Failed to parse response", e);
+                    Toast.makeText(ResetPasswordActivity.this, "An error occurred.", Toast.LENGTH_LONG).show();
                 }
-        );
+            }
 
-        Volley.newRequestQueue(this).add(request);
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) {
+                Log.e("ResetPasswordActivity", "Retrofit Error", t);
+                Toast.makeText(ResetPasswordActivity.this, "Failed to reset password. Check network connection.", Toast.LENGTH_LONG).show();
+            }
+        });
     }
 }

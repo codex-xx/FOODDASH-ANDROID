@@ -9,9 +9,13 @@ import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
-import com.android.volley.Request;
-import com.android.volley.toolbox.JsonObjectRequest;
-import com.android.volley.toolbox.Volley;
+import java.util.HashMap;
+import java.util.Map;
+
+import okhttp3.ResponseBody;
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Response;
 
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -20,8 +24,7 @@ public class ForgotPasswordActivity extends AppCompatActivity {
 
     EditText emailEdit;
     Button btnResetPassword, btnTestConnection;
-    String URL_FORGOT_PASSWORD = Constants.BASE_URL + "forgot-password";
-    String URL_TEST_CONNECTION = Constants.BASE_URL + "test";
+    ApiService apiService;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -31,6 +34,7 @@ public class ForgotPasswordActivity extends AppCompatActivity {
         emailEdit = findViewById(R.id.emailEdit);
         btnResetPassword = findViewById(R.id.btnResetPassword);
         btnTestConnection = findViewById(R.id.btnTestConnection);
+        apiService = RetrofitClient.getApiService();
 
         btnResetPassword.setOnClickListener(v -> {
             String email = emailEdit.getText().toString().trim();
@@ -45,67 +49,75 @@ public class ForgotPasswordActivity extends AppCompatActivity {
     }
 
     private void testConnection() {
-        JsonObjectRequest request = new JsonObjectRequest(Request.Method.GET, URL_TEST_CONNECTION, null,
-                response -> {
-                    Log.d("ForgotPasswordActivity", "Test connection success: " + response.toString());
+        apiService.testConnection().enqueue(new Callback<ResponseBody>() {
+            @Override
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                try {
+                    String body = response.body() != null ? response.body().string() : "{}";
+                    Log.d("ForgotPasswordActivity", "Test connection success: " + body);
                     new androidx.appcompat.app.AlertDialog.Builder(ForgotPasswordActivity.this)
                         .setTitle("Connection Successful")
-                        .setMessage("Successfully connected to the backend.\n\nServer Response:\n" + response.toString())
+                        .setMessage("Successfully connected to the backend.\n\nServer Response:\n" + body)
                         .setPositiveButton(android.R.string.ok, null)
                         .show();
-                },
-                error -> {
-                    Log.e("ForgotPasswordActivity", "Test connection failed", error);
-                    new androidx.appcompat.app.AlertDialog.Builder(ForgotPasswordActivity.this)
-                        .setTitle("Connection Failed")
-                        .setMessage("Could not connect to the backend. Please check your network and IP address.")
-                        .setPositiveButton(android.R.string.ok, null)
-                        .show();
+                } catch (Exception e) {
+                    onFailure(call, e);
                 }
-        );
+            }
 
-        Volley.newRequestQueue(this).add(request);
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) {
+                Log.e("ForgotPasswordActivity", "Test connection failed", t);
+                new androidx.appcompat.app.AlertDialog.Builder(ForgotPasswordActivity.this)
+                    .setTitle("Connection Failed")
+                    .setMessage("Could not connect to the backend. Please check your network and IP address.")
+                    .setPositiveButton(android.R.string.ok, null)
+                    .show();
+            }
+        });
     }
 
     private void sendPasswordResetLink(String email) {
-        JSONObject postData = new JSONObject();
-        try {
-            postData.put("email", email);
-        } catch (JSONException e) {
-            Log.e("ForgotPasswordActivity", "Failed to create JSON object", e);
-        }
+        Map<String, String> fields = new HashMap<>();
+        fields.put("email", email);
 
-        JsonObjectRequest request = new JsonObjectRequest(Request.Method.POST, URL_FORGOT_PASSWORD, postData,
-                response -> {
-                    try {
-                        String message = response.getString("message");
-                        Toast.makeText(this, message, Toast.LENGTH_LONG).show();
-                        Intent intent = new Intent(this, VerifyCodeActivity.class);
+        apiService.forgotPassword(fields).enqueue(new Callback<ResponseBody>() {
+            @Override
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                try {
+                    String responseBody = response.body() != null ? response.body().string() : 
+                                         (response.errorBody() != null ? response.errorBody().string() : "");
+                    responseBody = responseBody.trim();
+
+                    JSONObject jsonResponse;
+                    if (responseBody.startsWith("{")) {
+                        jsonResponse = new JSONObject(responseBody);
+                    } else {
+                        jsonResponse = new JSONObject();
+                        jsonResponse.put("success", response.isSuccessful());
+                        jsonResponse.put("message", responseBody.isEmpty() ? (response.isSuccessful() ? "Request sent." : "Request failed.") : responseBody);
+                    }
+
+                    String message = jsonResponse.optString("message", "Request sent.");
+                    Toast.makeText(ForgotPasswordActivity.this, message, Toast.LENGTH_LONG).show();
+                    
+                    if (response.isSuccessful()) {
+                        Intent intent = new Intent(ForgotPasswordActivity.this, VerifyCodeActivity.class);
                         intent.putExtra("email", email);
                         startActivity(intent);
                         finish();
-                    } catch (JSONException e) {
-                        Log.e("ForgotPasswordActivity", "Failed to parse success response", e);
-                        Toast.makeText(this, "An error occurred.", Toast.LENGTH_LONG).show();
                     }
-                },
-                error -> {
-                    if (error.networkResponse != null && error.networkResponse.data != null) {
-                        try {
-                            String responseBody = new String(error.networkResponse.data, "utf-8");
-                            JSONObject data = new JSONObject(responseBody);
-                            String message = data.optString("message", "An unknown error occurred.");
-                            Toast.makeText(this, message, Toast.LENGTH_LONG).show();
-                        } catch (Exception e) {
-                            Log.e("ForgotPasswordActivity", "Error parsing error response", e);
-                            Toast.makeText(this, "Failed to send reset link. Check logs for details.", Toast.LENGTH_LONG).show();
-                        }                    } else {
-                        Log.e("ForgotPasswordActivity", "Volley Error", error);
-                        Toast.makeText(this, "Failed to send reset link. Check network connection.", Toast.LENGTH_LONG).show();
-                    }
+                } catch (Exception e) {
+                    Log.e("ForgotPasswordActivity", "Failed to parse response", e);
+                    Toast.makeText(ForgotPasswordActivity.this, "An error occurred.", Toast.LENGTH_LONG).show();
                 }
-        );
+            }
 
-        Volley.newRequestQueue(this).add(request);
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) {
+                Log.e("ForgotPasswordActivity", "Retrofit Error", t);
+                Toast.makeText(ForgotPasswordActivity.this, "Failed to send reset link. Check network connection.", Toast.LENGTH_LONG).show();
+            }
+        });
     }
 }

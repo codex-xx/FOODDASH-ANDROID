@@ -4,7 +4,7 @@
     <color name="white">#FFFFFFFF</color>
     <color name="faded_orange">#FFE8A871</color>
     <color name="light_faded_orange">#FFFFF5EE</color>
-    <color name="secondary_dark_gray">#555555</color>
+    <color name="secondary_dark_gray">#222222</color>
     <!-- Added for driver phone link color -->
     <color name="primary_blue">#1976D2</color>
     <!-- Added for login security warnings -->
@@ -16,8 +16,8 @@
     <color name="brand_secondary">#2E7D58</color>
     <color name="brand_surface">#FFFFFFFF</color>
     <color name="brand_surface_soft">#FFFFF9F4</color>
-    <color name="brand_text">#1F1A17</color>
-    <color name="brand_text_muted">#6C5A4D</color>
+    <color name="brand_text">#000000</color>
+    <color name="brand_text_muted">#111111</color>
     <color name="brand_border">#26A2603A</color>
     <color name="brand_gradient_start">#FFFFEFE2</color>
     <color name="brand_gradient_end">#FFFFF9F4</color>
