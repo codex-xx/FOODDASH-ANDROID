@@ -57,8 +57,15 @@ public class Constants {
     public static final String DELIVERY_MOTORCYCLE = "motorcycle";
     public static final String DELIVERY_TRICYCLE = "tricycle";
     public static final String DELIVERY_CAB = "cab";
+    // Default base delivery fees (can be adjusted as needed)
+    public static final double FEE_MOTORCYCLE = 30.00; // fast, cheap
+    public static final double FEE_TRICYCLE = 50.00;   // medium capacity
+    public static final double FEE_CAB = 80.00;        // bulk orders
 
-    public static final double FEE_MOTORCYCLE = 0.00;
-    public static final double FEE_TRICYCLE = 0.00;
-    public static final double FEE_CAB = 0.00;
+    // Helper to resolve fee by delivery type key
+    public static double getFeeForType(String deliveryType) {
+        if (DELIVERY_TRICYCLE.equalsIgnoreCase(deliveryType)) return FEE_TRICYCLE;
+        if (DELIVERY_CAB.equalsIgnoreCase(deliveryType)) return FEE_CAB;
+        return FEE_MOTORCYCLE;
+    }
 }
