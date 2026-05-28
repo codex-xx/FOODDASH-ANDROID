@@ -317,28 +317,22 @@ public class CustomerDashboard extends AppCompatActivity {
     }
 
     private void openOrderTrackingPage() {
-        if (activeOrderId > 0
-                && !Constants.STATUS_DELIVERED.equals(activeOrderStatus)
-                && !Constants.STATUS_CANCELLED.equals(activeOrderStatus)) {
-            Intent intent = new Intent(this, ActiveOrderActivity.class);
-            JSONObject payload = activeOrderSnapshot;
-            if (payload == null) {
-                payload = new JSONObject();
-                try {
-                    payload.put("id", activeOrderId);
-                    payload.put("order_id", activeOrderId);
-                    payload.put("status", activeOrderStatus);
-                    payload.put("delivery_address", deliveryAddressEditText.getText().toString().trim());
-                } catch (Exception ignored) {
-                    // Keep fallback behavior even if snapshot building fails.
-                }
-            }
-            intent.putExtra("order_json", payload.toString());
-            startActivity(intent);
-            return;
-        }
-
         Intent intent = new Intent(this, OrderTrackingActivity.class);
+        JSONObject payload = activeOrderSnapshot;
+        if (payload == null && activeOrderId > 0) {
+            payload = new JSONObject();
+            try {
+                payload.put("id", activeOrderId);
+                payload.put("order_id", activeOrderId);
+                payload.put("status", activeOrderStatus);
+                payload.put("delivery_address", deliveryAddressEditText.getText().toString().trim());
+            } catch (Exception ignored) {
+                // Keep fallback behavior even if snapshot building fails.
+            }
+        }
+        if (payload != null) {
+            intent.putExtra("order_json", payload.toString());
+        }
         if (activeOrderId > 0) {
             intent.putExtra("order_id", activeOrderId);
         }
@@ -352,10 +346,10 @@ public class CustomerDashboard extends AppCompatActivity {
         updateCartButtonState();
         updateCartTabBadge();
         updateNotificationsTabCount();
+        fetchLatestCustomerOrder();
         fetchRestaurants(true);
         startMenuPolling();
         startOrderPolling();
-        fetchLatestCustomerOrder();
     }
 
     @Override
@@ -1069,6 +1063,7 @@ public class CustomerDashboard extends AppCompatActivity {
                     String body = response.body() != null ? response.body().string() : "{}";
                     JSONObject jsonResponse = new JSONObject(body);
                     JSONArray orders = extractOrdersFromResponse(jsonResponse);
+                    mergeNotificationsFromOrders(orders);
                     applyOrderTracking(findActiveOrderInList(orders));
                 } catch (Exception e) {
                     onFailure(call, e);
@@ -1090,6 +1085,7 @@ public class CustomerDashboard extends AppCompatActivity {
                     String body = response.body() != null ? response.body().string() : "{}";
                     JSONObject jsonResponse = new JSONObject(body);
                     JSONArray orders = extractOrdersFromResponse(jsonResponse);
+                    mergeNotificationsFromOrders(orders);
                     applyOrderTracking(findActiveOrderInList(orders));
                 } catch (Exception e) {
                     // Fail silently
@@ -1101,6 +1097,27 @@ public class CustomerDashboard extends AppCompatActivity {
                 // Fail silently
             }
         });
+    }
+
+    private void mergeNotificationsFromOrders(JSONArray orders) {
+        if (orders == null || orders.length() == 0) {
+            return;
+        }
+
+        List<JSONObject> orderList = new ArrayList<>();
+        for (int i = 0; i < orders.length(); i++) {
+            JSONObject order = orders.optJSONObject(i);
+            if (order != null) {
+                orderList.add(order);
+            }
+        }
+
+        if (orderList.isEmpty()) {
+            return;
+        }
+
+        NotificationStore.mergeFetchedOrders(this, orderList);
+        updateNotificationsTabCount();
     }
 
     private JSONArray extractOrdersFromResponse(JSONObject response) {
@@ -1134,11 +1151,6 @@ public class CustomerDashboard extends AppCompatActivity {
 
     private void applyOrderTracking(JSONObject order) {
         if (order == null) {
-            activeOrderId = -1;
-            activeOrderStatus = "";
-            activeOrderSnapshot = null;
-            orderTrackingLayout.setVisibility(View.GONE);
-            if (btnViewActiveOrders != null) btnViewActiveOrders.setVisibility(View.GONE);
             return;
         }
         activeOrderId = order.optInt("id", order.optInt("order_id", -1));
@@ -1154,6 +1166,20 @@ public class CustomerDashboard extends AppCompatActivity {
         
         if (btnViewActiveOrders != null) btnViewActiveOrders.setVisibility(View.VISIBLE);
         renderOrderTimeline(activeOrderStatus, order.optString("driver_location", ""));
+    }
+
+    private void loadCachedActiveOrder() {
+        SharedPreferences prefs = getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
+        String cachedOrder = prefs.getString("last_active_order_json", "");
+        if (TextUtils.isEmpty(cachedOrder)) {
+            return;
+        }
+
+        try {
+            applyOrderTracking(new JSONObject(cachedOrder));
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to load cached active order", e);
+        }
     }
 
     private void renderOrderTimeline(String status, String location) {

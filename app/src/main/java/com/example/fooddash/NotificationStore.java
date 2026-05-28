@@ -30,6 +30,10 @@ public final class NotificationStore {
     private static final String KEY_PREFIX_HISTORY = "notification_history_json_user_";
     private static final String KEY_PREFIX_DISMISSED = "dismissed_notification_keys_json_user_";
 
+    private static final String TYPE_ORDER = "order";
+    private static final String TYPE_PROMOTION = "promotion";
+    private static final String TYPE_MESSAGE = "message";
+
     private NotificationStore() {
     }
 
@@ -374,7 +378,7 @@ public final class NotificationStore {
             return group.orderId > 0;
         }
         if (filter == NotificationFilter.PROMOTIONS) {
-            return group.orderId <= 0 || "promotion".equalsIgnoreCase(group.type);
+            return TYPE_PROMOTION.equalsIgnoreCase(group.type);
         }
         return true;
     }
@@ -413,19 +417,26 @@ public final class NotificationStore {
             if (!TextUtils.isEmpty(restaurantAddress)) {
                 event.put("restaurant_address", restaurantAddress);
             }
-            // Use the sanitized restaurantName for the message
-            event.put("message", getStatusMessage(status, restaurantName));
+            String driverName = "";
+            String driverPhone = "";
 
             JSONObject driverObj = order.optJSONObject("driver");
             if (driverObj != null) {
-                event.put("driver_name", firstNonEmpty(driverObj.optString("name"), driverObj.optString("driver_name"), driverObj.optString("full_name")));
-                event.put("driver_phone", firstNonEmpty(driverObj.optString("phone"), driverObj.optString("contact"), driverObj.optString("mobile")));
+                driverName = firstNonEmpty(driverObj.optString("name"), driverObj.optString("driver_name"), driverObj.optString("full_name"));
+                driverPhone = firstNonEmpty(driverObj.optString("phone"), driverObj.optString("contact"), driverObj.optString("mobile"), driverObj.optString("phone_number"));
+                event.put("driver_name", driverName);
+                event.put("driver_phone", driverPhone);
                 event.put("driver_avatar", firstNonEmpty(driverObj.optString("avatar"), driverObj.optString("image"), driverObj.optString("photo")));
             } else {
-                event.put("driver_name", firstNonEmpty(order.optString("driver_name"), order.optString("rider_name")));
-                event.put("driver_phone", firstNonEmpty(order.optString("driver_phone"), order.optString("driver_contact"), order.optString("phone")));
+                driverName = firstNonEmpty(order.optString("driver_name"), order.optString("rider_name"), order.optString("driver_fullname"));
+                driverPhone = firstNonEmpty(order.optString("driver_phone"), order.optString("driver_contact"), order.optString("driver_phone_number"), order.optString("rider_phone"));
+                event.put("driver_name", driverName);
+                event.put("driver_phone", driverPhone);
                 event.put("driver_avatar", firstNonEmpty(order.optString("driver_avatar"), order.optString("driver_image")));
             }
+
+            // Use the sanitized restaurant/driver fields for a readable timeline message.
+            event.put("message", getStatusMessage(status, restaurantName, driverName, driverPhone));
         } catch (Exception ignored) {
         }
         return event;
@@ -480,9 +491,15 @@ public final class NotificationStore {
         return 0L;
     }
 
-    private static String getStatusMessage(String status, String restaurant) {
+    private static String getStatusMessage(String status, String restaurant, String driverName, String driverPhone) {
         switch (status) {
             case Constants.STATUS_ACCEPTED:
+                if (!TextUtils.isEmpty(driverName) || !TextUtils.isEmpty(driverPhone)) {
+                    String who = TextUtils.isEmpty(driverName) ? "Driver" : driverName;
+                    return TextUtils.isEmpty(driverPhone)
+                            ? who + " accepted your order from " + restaurant + "."
+                            : who + " accepted your order from " + restaurant + ". Contact: " + driverPhone;
+                }
                 return "Restaurant accepted your order from " + restaurant + ".";
             case Constants.STATUS_PREPARING:
                 return "Your order from " + restaurant + " is being prepared.";
@@ -561,7 +578,7 @@ public final class NotificationStore {
         }
         if (!copy.has("type")) {
             try {
-                copy.put("type", copy.optInt("order_id", -1) > 0 ? "order" : "promotion");
+                copy.put("type", copy.optInt("order_id", -1) > 0 ? TYPE_ORDER : TYPE_MESSAGE);
             } catch (Exception ignored) {
             }
         }
@@ -680,11 +697,15 @@ public final class NotificationStore {
         if (orderId > 0) {
             return "order_" + orderId;
         }
-        return "promotion_" + getEventKey(event, fallbackIndex);
+        String type = event.optString("type", "");
+        if (TYPE_PROMOTION.equalsIgnoreCase(type)) {
+            return "promotion_" + getEventKey(event, fallbackIndex);
+        }
+        return "message_" + getEventKey(event, fallbackIndex);
     }
 
     private static boolean isPromotion(JSONObject event) {
-        return event != null && (event.optInt("order_id", -1) <= 0 || "promotion".equalsIgnoreCase(event.optString("type", "")));
+        return event != null && TYPE_PROMOTION.equalsIgnoreCase(event.optString("type", ""));
     }
 
     private static String firstNonEmpty(String... values) {
@@ -707,7 +728,14 @@ public final class NotificationStore {
         GroupBuilder(String groupKey, JSONObject seed) {
             this.groupKey = groupKey;
             this.orderId = seed.optInt("order_id", -1);
-            this.type = seed.optString("type", isPromotion(seed) ? "promotion" : "order");
+            String explicitType = firstNonEmpty(seed.optString("type"));
+            if (!TextUtils.isEmpty(explicitType)) {
+                this.type = explicitType;
+            } else if (this.orderId > 0) {
+                this.type = TYPE_ORDER;
+            } else {
+                this.type = TYPE_MESSAGE;
+            }
             String name = firstNonEmpty(seed.optString("restaurant_name"), seed.optString("restaurant"));
             String address = firstNonEmpty(seed.optString("restaurant_address"), seed.optString("restaurant_address"));
             JSONObject restObj = seed.optJSONObject("restaurant");
@@ -748,7 +776,12 @@ public final class NotificationStore {
             String latestMessage = latest.optString("message", "");
             // If message is missing or looks like raw JSON, prefer a friendly status message instead
             if (TextUtils.isEmpty(latestMessage) || latestMessage.trim().startsWith("{") || latestMessage.trim().startsWith("[")) {
-                latestMessage = getStatusMessage(latestStatus, restaurantName);
+                latestMessage = getStatusMessage(
+                    latestStatus,
+                    restaurantName,
+                    firstNonEmpty(latest.optString("driver_name"), latest.optString("rider_name"), latest.optString("driver_fullname")),
+                    firstNonEmpty(latest.optString("driver_phone"), latest.optString("driver_contact"), latest.optString("driver_phone_number"), latest.optString("rider_phone"))
+                );
             }
 
             return new NotificationGroup(groupKey, orderId, type, title, subtitle, latestStatus, latestMessage, latestTimestamp, unread, new ArrayList<>(events));

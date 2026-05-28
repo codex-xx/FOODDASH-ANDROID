@@ -37,6 +37,7 @@ import java.util.Map;
 public class CheckoutActivity extends AppCompatActivity {
 
     private static final String TAG = "CheckoutActivity";
+    private static final String KEY_ACTIVE_ORDERS_CACHE = "active_orders_cache_json";
     private ApiService apiService;
     private double grandSubtotal = 0.0;
     private String cartItemsJson = "[]";
@@ -503,6 +504,10 @@ public class CheckoutActivity extends AppCompatActivity {
                 activeOrderPayload.put("status", Constants.STATUS_PENDING);
                 activeOrderPayload.put("delivery_address", pendingAddress);
                 activeOrderPayload.put("payment_method", pendingPaymentMethod);
+                activeOrderPayload.put("subtotal", grandSubtotal);
+                activeOrderPayload.put("delivery_fee", pendingDeliveryFee);
+                activeOrderPayload.put("total_amount", getGrandTotal(pendingDeliveryFee));
+                activeOrderPayload.put("grand_total", getGrandTotal(pendingDeliveryFee));
                 if (!orderGroups.isEmpty()) {
                     activeOrderPayload.put("restaurant_name", orderGroups.get(0).restaurantName);
                     activeOrderPayload.put("items", orderGroups.get(0).items);
@@ -512,11 +517,12 @@ public class CheckoutActivity extends AppCompatActivity {
                         .edit()
                         .putString("last_active_order_json", activeOrderPayload.toString())
                         .apply();
+                appendActiveOrderToCache(activeOrderPayload);
 
-                Intent activeIntent = new Intent(this, ActiveOrderActivity.class);
-                activeIntent.putExtra("order_json", activeOrderPayload.toString());
-                activeIntent.putExtra("order_id", primaryOrderId);
-                startActivity(activeIntent);
+                Intent trackingIntent = new Intent(this, OrderTrackingActivity.class);
+                trackingIntent.putExtra("order_json", activeOrderPayload.toString());
+                trackingIntent.putExtra("order_id", primaryOrderId);
+                startActivity(trackingIntent);
                 finish();
                 return;
             } catch (Exception e) {
@@ -532,6 +538,50 @@ public class CheckoutActivity extends AppCompatActivity {
         trackingIntent.putExtra("is_paid", true);
         startActivity(trackingIntent);
         finish();
+    }
+
+    private void appendActiveOrderToCache(JSONObject activeOrderPayload) {
+        if (activeOrderPayload == null) {
+            return;
+        }
+
+        SharedPreferences prefs = getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
+        JSONArray cache = new JSONArray();
+        try {
+            String existing = prefs.getString(KEY_ACTIVE_ORDERS_CACHE, "[]");
+            if (!TextUtils.isEmpty(existing)) {
+                cache = new JSONArray(existing);
+            }
+        } catch (Exception ignored) {
+        }
+
+        int orderId = activeOrderPayload.optInt("id", activeOrderPayload.optInt("order_id", -1));
+        JSONArray merged = new JSONArray();
+        boolean replaced = false;
+        for (int i = 0; i < cache.length(); i++) {
+            JSONObject existingOrder = cache.optJSONObject(i);
+            if (existingOrder == null) {
+                continue;
+            }
+
+            int existingId = existingOrder.optInt("id", existingOrder.optInt("order_id", -1));
+            if (existingId > 0 && existingId == orderId) {
+                merged.put(activeOrderPayload);
+                replaced = true;
+            } else {
+                merged.put(existingOrder);
+            }
+        }
+
+        if (!replaced) {
+            merged.put(activeOrderPayload);
+        }
+
+        prefs.edit()
+                .putString(KEY_ACTIVE_ORDERS_CACHE, merged.toString())
+                .putInt("last_active_order_id", orderId)
+                .putString("last_active_order_json", activeOrderPayload.toString())
+                .apply();
     }
 
     private void addPlacedOrderId(int id) {

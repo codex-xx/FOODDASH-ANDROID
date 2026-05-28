@@ -129,11 +129,23 @@ public class DriverDashboard extends AppCompatActivity {
             SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
             String notificationHistory = prefs.getString("notification_history_json", "[]");
             String dismissedNotificationKeys = prefs.getString("dismissed_notification_keys_json", "[]");
+            String activeOrdersCache = prefs.getString("active_orders_cache_json", "[]");
+            String orderHistoryCache = prefs.getString("order_history_cache_json", "[]");
+            int lastActiveOrderId = prefs.getInt("last_active_order_id", -1);
+            String lastActiveOrderJson = prefs.getString("last_active_order_json", null);
             prefs.edit().clear().apply();
-            prefs.edit()
+            SharedPreferences.Editor editor = prefs.edit()
                     .putString("notification_history_json", notificationHistory)
                     .putString("dismissed_notification_keys_json", dismissedNotificationKeys)
-                    .apply();
+                    .putString("active_orders_cache_json", activeOrdersCache)
+                    .putString("order_history_cache_json", orderHistoryCache);
+            if (lastActiveOrderId > 0) {
+                editor.putInt("last_active_order_id", lastActiveOrderId);
+            }
+            if (lastActiveOrderJson != null) {
+                editor.putString("last_active_order_json", lastActiveOrderJson);
+            }
+            editor.commit();
             startActivity(new Intent(this, LoginActivity.class));
             finish();
         });
@@ -531,12 +543,23 @@ public class DriverDashboard extends AppCompatActivity {
         Map<String, String> fields = new HashMap<>();
         String idStr = String.valueOf(orderId);
         String driverIdStr = String.valueOf(getDriverId());
+        String driverName = getDriverName();
+        String driverPhone = getDriverPhone();
+        String driverEmail = getDriverEmail();
+        String vehicleType = getVehicleType();
         
         fields.put("id", idStr);
         fields.put("order_id", idStr);
         fields.put("orderid", idStr);
         fields.put("driver_id", driverIdStr);
         fields.put("user_id", driverIdStr);
+        fields.put("driver_name", driverName);
+        fields.put("rider_name", driverName);
+        fields.put("driver_phone", driverPhone);
+        fields.put("driver_contact", driverPhone);
+        fields.put("driver_phone_number", driverPhone);
+        fields.put("driver_email", driverEmail);
+        fields.put("vehicle_type", vehicleType);
         fields.put("status", newStatus);
         fields.put("order_status", newStatus);
         fields.put("new_status", newStatus);

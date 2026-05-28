@@ -323,11 +323,24 @@ public class ProfileActivity extends AppCompatActivity {
 
         String notificationHistory = prefs.getString("notification_history_json", "[]");
         String dismissedNotificationKeys = prefs.getString("dismissed_notification_keys_json", "[]");
-        prefs.edit().clear().apply();
-        prefs.edit()
+        String orderHistoryCache = prefs.getString("order_history_cache_json", "[]");
+        String activeOrdersCache = prefs.getString("active_orders_cache_json", "[]");
+        int lastActiveOrderId = prefs.getInt("last_active_order_id", -1);
+        String lastActiveOrderJson = prefs.getString("last_active_order_json", null);
+        SharedPreferences.Editor editor = prefs.edit();
+        editor.clear();
+        editor
                 .putString("notification_history_json", notificationHistory)
                 .putString("dismissed_notification_keys_json", dismissedNotificationKeys)
-                .apply();
+            .putString("order_history_cache_json", orderHistoryCache)
+                .putString("active_orders_cache_json", activeOrdersCache);
+        if (lastActiveOrderId > 0) {
+            editor.putInt("last_active_order_id", lastActiveOrderId);
+        }
+        if (lastActiveOrderJson != null) {
+            editor.putString("last_active_order_json", lastActiveOrderJson);
+        }
+        editor.commit();
 
         startActivity(new Intent(this, LoginActivity.class));
         finish();

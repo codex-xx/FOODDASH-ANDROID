@@ -40,7 +40,7 @@ public class ActiveOrderActivity extends AppCompatActivity {
     private static final String KEY_DRIVER_DELIVERY_HISTORY = "driver_delivery_history_json";
 
     private TextView activeOrderIdText, activeCustomerName, activeCustomerContact, activeDeliveryAddress;
-    private TextView activeRestaurantName, activeOrderItems, activeOrderStatus, activePaymentMethod;
+    private TextView activeRestaurantName, activeOrderItems, activeOrderStatus, activePaymentMethod, activeOrderTotal;
     // driver UI moved to customer order listing (OrderTrackingActivity)
     private Button btnPreparing, btnReady, btnArrived, btnPickedUp, btnOnTheWay, btnDelivered;
 
@@ -70,6 +70,7 @@ public class ActiveOrderActivity extends AppCompatActivity {
         activeOrderItems = findViewById(R.id.activeOrderItems);
         activeOrderStatus = findViewById(R.id.activeOrderStatus);
         activePaymentMethod = findViewById(R.id.activePaymentMethod);
+        activeOrderTotal = findViewById(R.id.activeOrderTotal);
         // driver UI bindings removed
 
         btnPreparing = findViewById(R.id.btnPreparing);
@@ -145,6 +146,7 @@ public class ActiveOrderActivity extends AppCompatActivity {
                     if (freshOrder == null) freshOrder = jsonResponse;
 
                     if (freshOrder != null && freshOrder.length() > 0) {
+                        preserveDisplayedTotals(freshOrder);
                         activeOrder = freshOrder;
                         orderId = activeOrder.optInt("id", activeOrder.optInt("order_id", orderId));
                         renderOrderDetails();
@@ -179,10 +181,12 @@ public class ActiveOrderActivity extends AppCompatActivity {
                     if (orders == null) orders = jsonResponse.optJSONArray("data");
                     if (orders != null && orders.length() > 0) {
                         activeOrder = orders.optJSONObject(0);
+                        preserveDisplayedTotals(activeOrder);
                         orderId = activeOrder.optInt("id", activeOrder.optInt("order_id", orderId));
                         renderOrderDetails();
                     } else if (jsonResponse.has("id") || jsonResponse.has("order_id")) {
                         activeOrder = jsonResponse;
+                        preserveDisplayedTotals(activeOrder);
                         orderId = activeOrder.optInt("id", activeOrder.optInt("order_id", orderId));
                         renderOrderDetails();
                     }
@@ -282,6 +286,12 @@ public class ActiveOrderActivity extends AppCompatActivity {
             paymentDisplayText += "N/A";
         }
         activePaymentMethod.setText(paymentDisplayText);
+
+        double total = activeOrder.optDouble("total_amount",
+            activeOrder.optDouble("total",
+                activeOrder.optDouble("grand_total",
+                    activeOrder.optDouble("amount", 0.0))));
+        activeOrderTotal.setText(String.format(Locale.getDefault(), "Total: P%.2f", total));
         
         String status = normalizeStatus(activeOrder.optString("status", "pending"));
         activeOrderStatus.setText("Status: " + status.replace("_", " ").toUpperCase());
@@ -303,6 +313,26 @@ public class ActiveOrderActivity extends AppCompatActivity {
             }
         }
         return "";
+    }
+
+    private void preserveDisplayedTotals(JSONObject freshOrder) {
+        if (freshOrder == null || activeOrder == null) {
+            return;
+        }
+
+        double total = activeOrder.optDouble("total_amount",
+                activeOrder.optDouble("total",
+                        activeOrder.optDouble("grand_total",
+                                activeOrder.optDouble("amount", 0.0))));
+        if (total > 0.0) {
+            try {
+                freshOrder.put("total_amount", total);
+                freshOrder.put("total", total);
+                freshOrder.put("grand_total", total);
+                freshOrder.put("amount", total);
+            } catch (JSONException ignored) {
+            }
+        }
     }
 
     public static String normalizeStatus(String status) {
@@ -386,11 +416,18 @@ public class ActiveOrderActivity extends AppCompatActivity {
         Map<String, String> fields = new HashMap<>();
         try {
             int driverId = getUserId();
+            String driverName = getDriverName();
+            String driverPhone = getDriverPhone();
             fields.put("id", String.valueOf(orderId));
             fields.put("order_id", String.valueOf(orderId));
             fields.put("orderid", String.valueOf(orderId));
             fields.put("driver_id", String.valueOf(driverId));
             fields.put("user_id", String.valueOf(driverId));
+            fields.put("driver_name", driverName);
+            fields.put("rider_name", driverName);
+            fields.put("driver_phone", driverPhone);
+            fields.put("driver_contact", driverPhone);
+            fields.put("driver_phone_number", driverPhone);
             fields.put("status", status);
             fields.put("order_status", status);
             fields.put("new_status", status);
@@ -491,6 +528,14 @@ public class ActiveOrderActivity extends AppCompatActivity {
     }
 
     private int getUserId() { return getSharedPreferences("fooddash_prefs", MODE_PRIVATE).getInt("user_id", -1); }
+
+    private String getDriverName() {
+        return getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getString("user_name", "Driver");
+    }
+
+    private String getDriverPhone() {
+        return getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getString("contact_number", "");
+    }
 
     private Map<String, String> buildAuthHeaders() {
         Map<String, String> headers = new HashMap<>();

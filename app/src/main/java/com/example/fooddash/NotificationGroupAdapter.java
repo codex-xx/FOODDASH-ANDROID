@@ -1,9 +1,12 @@
 package com.example.fooddash;
 
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.Color;
+import android.graphics.Paint;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -93,16 +96,13 @@ public class NotificationGroupAdapter extends ListAdapter<NotificationStore.Noti
             unreadBadgeView.setVisibility(group.unread ? View.VISIBLE : View.GONE);
             cardView.setStrokeColor(ContextCompat.getColor(context, group.unread ? R.color.primary_blue : R.color.light_gray));
             cardView.setCardBackgroundColor(ContextCompat.getColor(context, R.color.white));
-
-            int latestStageRank = NotificationStore.getStageRank(group.latestStatus);
-            stageSummaryView.setText(latestStageRank > 0 ? NotificationStore.getStageLabel(group.latestStatus) : "Order update");
-            stageSummaryView.setVisibility(View.VISIBLE);
-
+            // Show notifications in a concise "message" form instead of expanded timeline.
+            // Hide timeline and stage summary to present a single message-style card.
             timelineContainer.removeAllViews();
-            for (String stageStatus : TIMELINE_STAGES) {
-                timelineContainer.addView(createTimelineRow(context, group, stageStatus, latestStageRank));
-            }
+            timelineContainer.setVisibility(View.GONE);
+            stageSummaryView.setVisibility(View.GONE);
 
+            // Show a dedicated driver details block when driver information is available.
             driverContainer.removeAllViews();
             bindDriverDetails(context, group);
 
@@ -157,8 +157,8 @@ public class NotificationGroupAdapter extends ListAdapter<NotificationStore.Noti
 
         private void bindDriverDetails(Context context, NotificationStore.NotificationGroup group) {
             int latestStageRank = NotificationStore.getStageRank(group.latestStatus);
-            // Only show rider/driver details after the rider has accepted/picked up the order
-            if (latestStageRank < NotificationStore.getStageRank(Constants.STATUS_PICKED_UP)) {
+            // Show rider/driver details starting from order acceptance onward.
+            if (latestStageRank < NotificationStore.getStageRank(Constants.STATUS_ACCEPTED)) {
                 driverContainer.setVisibility(View.GONE);
                 return;
             }
@@ -201,6 +201,15 @@ public class NotificationGroupAdapter extends ListAdapter<NotificationStore.Noti
             phone.setText(driverPhone.isEmpty() ? "Driver assigned" : "Call: " + driverPhone);
             phone.setTextColor(ContextCompat.getColor(context, R.color.primary_blue));
             phone.setTextSize(12f);
+            phone.setClickable(!driverPhone.isEmpty());
+            if (!driverPhone.isEmpty()) {
+                phone.setPaintFlags(phone.getPaintFlags() | Paint.UNDERLINE_TEXT_FLAG);
+                phone.setOnClickListener(v -> {
+                    Intent dialIntent = new Intent(Intent.ACTION_DIAL);
+                    dialIntent.setData(Uri.parse("tel:" + driverPhone.trim()));
+                    context.startActivity(dialIntent);
+                });
+            }
 
             info.addView(name);
             info.addView(phone);

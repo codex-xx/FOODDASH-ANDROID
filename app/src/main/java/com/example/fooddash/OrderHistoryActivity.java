@@ -29,11 +29,15 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class OrderHistoryActivity extends AppCompatActivity {
 
     private static final String TAG = "OrderHistoryActivity";
     private static final long POLL_MS = 10000L;
+    private static final String KEY_ORDER_HISTORY_CACHE = "order_history_cache_json";
+    private static final Pattern DIGITS_PATTERN = Pattern.compile("(\\d+)");
 
     private final Handler pollingHandler = new Handler(Looper.getMainLooper());
     private ApiService apiService;
@@ -115,11 +119,16 @@ public class OrderHistoryActivity extends AppCompatActivity {
                 try {
                     String body = response.body() != null ? response.body().string() : "{}";
                     JSONObject jsonResponse = new JSONObject(body);
-                    List<JSONObject> orders = extractOrders(jsonResponse);
+                    List<JSONObject> orders = mergeHistoryOrders(extractOrders(jsonResponse));
                     if (!orders.isEmpty()) {
                         renderHistory(orders);
                     } else if (historyContainer.getChildCount() == 0) {
-                        showEmptyMessage("No order history found.");
+                        List<JSONObject> cachedHistory = loadCachedOrderHistory();
+                        if (!cachedHistory.isEmpty()) {
+                            renderHistory(cachedHistory);
+                        } else {
+                            showEmptyMessage("No order history found.");
+                        }
                     }
                 } catch (Exception e) {
                     onFailure(call, e);
@@ -129,7 +138,12 @@ public class OrderHistoryActivity extends AppCompatActivity {
             @Override
             public void onFailure(Call<ResponseBody> call, Throwable t) {
                 if (historyContainer.getChildCount() == 0) {
-                    showEmptyMessage("No order history found.");
+                    List<JSONObject> cachedHistory = loadCachedOrderHistory();
+                    if (!cachedHistory.isEmpty()) {
+                        renderHistory(cachedHistory);
+                    } else {
+                        showEmptyMessage("No order history found.");
+                    }
                 }
             }
         });
@@ -140,7 +154,7 @@ public class OrderHistoryActivity extends AppCompatActivity {
                 try {
                     String body = response.body() != null ? response.body().string() : "{}";
                     JSONObject jsonResponse = new JSONObject(body);
-                    List<JSONObject> orders = extractOrders(jsonResponse);
+                    List<JSONObject> orders = mergeHistoryOrders(extractOrders(jsonResponse));
                     if (!orders.isEmpty()) {
                         renderHistory(orders);
                     }
@@ -158,9 +172,17 @@ public class OrderHistoryActivity extends AppCompatActivity {
 
         JSONArray orders = response.optJSONArray("orders");
         if (orders == null) orders = response.optJSONArray("data");
+        if (orders == null) orders = response.optJSONArray("history");
+        if (orders == null) orders = response.optJSONArray("order_history");
+        if (orders == null) orders = response.optJSONArray("results");
         if (orders == null) {
             JSONObject data = response.optJSONObject("data");
-            if (data != null) orders = data.optJSONArray("orders");
+            if (data != null) {
+                orders = data.optJSONArray("orders");
+                if (orders == null) orders = data.optJSONArray("history");
+                if (orders == null) orders = data.optJSONArray("order_history");
+                if (orders == null) orders = data.optJSONArray("results");
+            }
         }
         if (orders != null) {
             for (int i = 0; i < orders.length(); i++) {
@@ -168,11 +190,11 @@ public class OrderHistoryActivity extends AppCompatActivity {
                 if (o != null) list.add(o);
             }
         } else {
-            if (response.has("id") || response.has("order_id") || response.has("items") || response.has("status")) {
+            if (!TextUtils.isEmpty(extractOrderKey(response)) || response.has("items") || response.has("status")) {
                 list.add(response);
             } else if (response.has("data")) {
                 JSONObject data = response.optJSONObject("data");
-                if (data != null && (data.has("id") || data.has("order_id"))) {
+                if (data != null && !TextUtils.isEmpty(extractOrderKey(data))) {
                     list.add(data);
                 }
             }
@@ -180,15 +202,86 @@ public class OrderHistoryActivity extends AppCompatActivity {
         return list;
     }
 
+    private List<JSONObject> loadCachedOrderHistory() {
+        List<JSONObject> history = new ArrayList<>();
+        SharedPreferences prefs = getSharedPreferences("fooddash_prefs", MODE_PRIVATE);
+        String cached = prefs.getString(KEY_ORDER_HISTORY_CACHE, "");
+        if (TextUtils.isEmpty(cached)) {
+            return history;
+        }
+
+        try {
+            JSONArray array = new JSONArray(cached);
+            for (int i = 0; i < array.length(); i++) {
+                JSONObject order = array.optJSONObject(i);
+                if (order != null) {
+                    if (TextUtils.isEmpty(extractOrderKey(order))) {
+                        continue;
+                    }
+                    String status = ActiveOrderActivity.normalizeStatus(order.optString("status", ""));
+                    if (Constants.STATUS_DELIVERED.equals(status) || Constants.STATUS_CANCELLED.equals(status)) {
+                        history.add(order);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to load cached order history", e);
+        }
+
+        return history;
+    }
+
+    private List<JSONObject> mergeHistoryOrders(List<JSONObject> freshOrders) {
+        Map<String, JSONObject> merged = new HashMap<>();
+
+        for (JSONObject cachedOrder : loadCachedOrderHistory()) {
+            String key = extractOrderKey(cachedOrder);
+            if (!TextUtils.isEmpty(key)) {
+                merged.put(key, cachedOrder);
+            }
+        }
+
+        for (JSONObject freshOrder : freshOrders) {
+            String key = extractOrderKey(freshOrder);
+            if (TextUtils.isEmpty(key)) {
+                continue;
+            }
+
+            String status = ActiveOrderActivity.normalizeStatus(freshOrder.optString("status", ""));
+            if (Constants.STATUS_DELIVERED.equals(status) || Constants.STATUS_CANCELLED.equals(status)) {
+                merged.put(key, freshOrder);
+            }
+        }
+
+        List<JSONObject> list = new ArrayList<>(merged.values());
+        Collections.sort(list, (a, b) -> Integer.compare(b.optInt("id", b.optInt("order_id", -1)), a.optInt("id", a.optInt("order_id", -1))));
+        persistOrderHistoryCache(list);
+        return list;
+    }
+
+    private void persistOrderHistoryCache(List<JSONObject> orders) {
+        JSONArray updated = new JSONArray();
+        for (JSONObject order : orders) {
+            if (order != null) {
+                updated.put(order);
+            }
+        }
+
+        getSharedPreferences("fooddash_prefs", MODE_PRIVATE)
+                .edit()
+                .putString(KEY_ORDER_HISTORY_CACHE, updated.toString())
+                .apply();
+    }
+
     private void renderHistory(List<JSONObject> orders) {
-        Map<Integer, JSONObject> unique = new HashMap<>();
+        Map<String, JSONObject> unique = new HashMap<>();
         for (JSONObject o : orders) {
-            int id = o.optInt("id", o.optInt("order_id", -1));
-            if (id > 0) unique.put(id, o);
+            String key = extractOrderKey(o);
+            if (!TextUtils.isEmpty(key)) unique.put(key, o);
         }
 
         List<JSONObject> list = new ArrayList<>(unique.values());
-        Collections.sort(list, (a, b) -> Integer.compare(b.optInt("id"), a.optInt("id")));
+        Collections.sort(list, (a, b) -> Integer.compare(extractOrderId(b), extractOrderId(a)));
 
         List<JSONObject> history = new ArrayList<>();
         for (JSONObject o : list) {
@@ -205,12 +298,144 @@ public class OrderHistoryActivity extends AppCompatActivity {
 
         historyContainer.removeAllViews();
         for (JSONObject o : history) {
-            int id = o.optInt("id", o.optInt("order_id", -1));
-            historyContainer.addView(createOrderCard(o, id));
+            historyContainer.addView(createOrderCard(o, getOrderDisplayRef(o)));
         }
     }
 
-    private View createOrderCard(JSONObject order, int orderId) {
+    private String extractOrderKey(JSONObject order) {
+        if (order == null) {
+            return "";
+        }
+
+        int numericId = order.optInt("id", -1);
+        if (numericId > 0) {
+            return "id:" + numericId;
+        }
+
+        numericId = order.optInt("order_id", -1);
+        if (numericId > 0) {
+            return "order_id:" + numericId;
+        }
+
+        numericId = order.optInt("orderId", -1);
+        if (numericId > 0) {
+            return "orderId:" + numericId;
+        }
+
+        String rawOrderId = order.optString("order_id", "").trim();
+        if (!TextUtils.isEmpty(rawOrderId)) {
+            return "order_id_raw:" + rawOrderId;
+        }
+
+        String rawOrderNo = order.optString("order_no", "").trim();
+        if (!TextUtils.isEmpty(rawOrderNo)) {
+            return "order_no:" + rawOrderNo;
+        }
+
+        String rawOrderNumber = order.optString("order_number", "").trim();
+        if (!TextUtils.isEmpty(rawOrderNumber)) {
+            return "order_number:" + rawOrderNumber;
+        }
+
+        String rawOrderIdCamel = order.optString("orderId", "").trim();
+        if (!TextUtils.isEmpty(rawOrderIdCamel)) {
+            return "orderId_raw:" + rawOrderIdCamel;
+        }
+
+        String rawId = order.optString("id", "").trim();
+        if (!TextUtils.isEmpty(rawId)) {
+            return "id_raw:" + rawId;
+        }
+
+        return "";
+    }
+
+    private int extractOrderId(JSONObject order) {
+        if (order == null) {
+            return -1;
+        }
+
+        int id = order.optInt("id", -1);
+        if (id > 0) return id;
+
+        id = order.optInt("order_id", -1);
+        if (id > 0) return id;
+
+        id = order.optInt("orderId", -1);
+        if (id > 0) return id;
+
+        String[] idCandidates = new String[] {
+                order.optString("id", ""),
+                order.optString("order_id", ""),
+                order.optString("orderId", ""),
+                order.optString("order_no", ""),
+                order.optString("order_number", "")
+        };
+
+        for (String candidate : idCandidates) {
+            int parsed = parseOrderId(candidate);
+            if (parsed > 0) {
+                return parsed;
+            }
+        }
+
+        return -1;
+    }
+
+    private int parseOrderId(String raw) {
+        if (TextUtils.isEmpty(raw)) {
+            return -1;
+        }
+
+        try {
+            return Integer.parseInt(raw.trim());
+        } catch (Exception ignored) {
+        }
+
+        Matcher matcher = DIGITS_PATTERN.matcher(raw);
+        String lastDigits = null;
+        while (matcher.find()) {
+            lastDigits = matcher.group(1);
+        }
+        if (!TextUtils.isEmpty(lastDigits)) {
+            try {
+                return Integer.parseInt(lastDigits);
+            } catch (Exception ignored) {
+            }
+        }
+
+        return -1;
+    }
+
+    private String getOrderDisplayRef(JSONObject order) {
+        int id = extractOrderId(order);
+        if (id > 0) {
+            return "#" + id;
+        }
+
+        String ref = firstNonEmpty(
+                order.optString("order_no", ""),
+                order.optString("order_number", ""),
+                order.optString("order_id", ""),
+                order.optString("orderId", ""),
+                order.optString("id", "")
+        );
+        if (TextUtils.isEmpty(ref)) {
+            return "#Unknown";
+        }
+        return "#" + ref;
+    }
+
+    private String firstNonEmpty(String... values) {
+        for (String value : values) {
+            if (!TextUtils.isEmpty(value) && !"null".equalsIgnoreCase(value.trim())) {
+                return value.trim();
+            }
+        }
+        return "";
+    }
+
+    private View createOrderCard(JSONObject order, String orderRef) {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setBackgroundResource(R.drawable.view_border);
@@ -224,7 +449,7 @@ public class OrderHistoryActivity extends AppCompatActivity {
         double total = order.optDouble("total_amount", order.optDouble("total", 0.0));
 
         TextView header = new TextView(this);
-        header.setText(String.format(Locale.getDefault(), "Order #%d - %s", orderId, restaurant));
+        header.setText(String.format(Locale.getDefault(), "Order %s - %s", orderRef, restaurant));
         header.setTextSize(18f);
         header.setTypeface(null, android.graphics.Typeface.BOLD);
         header.setTextColor(getResources().getColor(android.R.color.black));
