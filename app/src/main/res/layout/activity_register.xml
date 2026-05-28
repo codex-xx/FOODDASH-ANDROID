@@ -33,7 +33,7 @@
                     android:text="@string/title_fooddash"
                     android:textAlignment="center"
                     android:textColor="@color/brand_primary_dark"
-                    android:textSize="24sp"
+                    android:textSize="30sp"
                     android:textStyle="bold" />
 
                 <TextView
@@ -42,12 +42,14 @@
                     android:layout_marginBottom="16dp"
                     android:text="@string/register_subtitle"
                     android:textAlignment="center"
-                    android:textColor="@color/brand_text_muted" />
+                    android:textColor="@color/black"
+                    android:textStyle="bold" />
 
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/select_role"
+                    android:textColor="@color/black"
                     android:textStyle="bold" />
 
                 <RadioGroup
@@ -60,6 +62,8 @@
                         android:id="@+id/rbCustomer"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
+                        android:textColor="@color/black"
+                        android:textStyle="bold"
                         android:text="@string/customer" />
 
                     <RadioButton
@@ -67,6 +71,8 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="16dp"
+                        android:textColor="@color/black"
+                        android:textStyle="bold"
                         android:text="@string/driver" />
                 </RadioGroup>
 
@@ -78,8 +84,9 @@
                     android:background="@drawable/bg_input_field"
                     android:hint="@string/name"
                     android:padding="12dp"
-                    android:textColor="@color/brand_text"
-                    android:textColorHint="@color/brand_text_muted"
+                    android:textColor="@color/black"
+                    android:textColorHint="@color/black"
+                    android:textStyle="bold"
                     android:ems="10"/>
 
                 <EditText
@@ -90,6 +97,9 @@
                     android:background="@drawable/bg_input_field"
                     android:hint="@string/contact_number"
                     android:padding="12dp"
+                    android:textColor="@color/black"
+                    android:textColorHint="@color/black"
+                    android:textStyle="bold"
                     android:inputType="phone" />
 
                 <EditText
@@ -100,6 +110,9 @@
                     android:background="@drawable/bg_input_field"
                     android:hint="@string/delivery_address"
                     android:padding="12dp"
+                    android:textColor="@color/black"
+                    android:textColorHint="@color/black"
+                    android:textStyle="bold"
                     android:inputType="textPostalAddress" />
 
                 <LinearLayout
@@ -114,7 +127,8 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="@string/customer_location_help"
-                        android:textColor="@color/brand_text_muted" />
+                        android:textColor="@color/black"
+                        android:textStyle="bold" />
 
                     <TextView
                         android:id="@+id/customerLocationSummaryText"
@@ -122,6 +136,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="6dp"
                         android:text="@string/location_unavailable"
+                        android:textColor="@color/black"
                         android:textStyle="bold" />
 
                     <Button
@@ -142,6 +157,8 @@
                     android:background="@drawable/bg_input_field"
                     android:padding="12dp"
                     android:text="@string/rider_location_help"
+                    android:textColor="@color/black"
+                    android:textStyle="bold"
                     android:visibility="gone" />
 
                 <EditText
@@ -152,6 +169,9 @@
                     android:background="@drawable/bg_input_field"
                     android:hint="@string/email"
                     android:padding="12dp"
+                    android:textColor="@color/black"
+                    android:textColorHint="@color/black"
+                    android:textStyle="bold"
                     android:ems="10" />
 
                 <Button
@@ -172,6 +192,9 @@
                     android:hint="@string/otp_code"
                     android:inputType="number"
                     android:padding="12dp"
+                    android:textColor="@color/black"
+                    android:textColorHint="@color/black"
+                    android:textStyle="bold"
                     android:maxLength="6" />
 
                 <EditText
@@ -182,6 +205,9 @@
                     android:background="@drawable/bg_input_field"
                     android:hint="@string/password"
                     android:padding="12dp"
+                    android:textColor="@color/black"
+                    android:textColorHint="@color/black"
+                    android:textStyle="bold"
                     android:inputType="textPassword" />
 
                 <EditText
@@ -192,6 +218,9 @@
                     android:background="@drawable/bg_input_field"
                     android:hint="@string/confirm_password"
                     android:padding="12dp"
+                    android:textColor="@color/black"
+                    android:textColorHint="@color/black"
+                    android:textStyle="bold"
                     android:inputType="textPassword" />
 
                 <LinearLayout
@@ -208,6 +237,9 @@
                         android:autofillHints=""
                         android:background="@drawable/bg_input_field"
                         android:padding="12dp"
+                        android:textColor="@color/black"
+                        android:textColorHint="@color/black"
+                        android:textStyle="bold"
                         android:hint="@string/license_number" />
 
                     <TextView
@@ -215,6 +247,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
                         android:text="@string/vehicle_type"
+                        android:textColor="@color/black"
                         android:textStyle="bold" />
 
                     <Spinner
@@ -229,6 +262,8 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
+                        android:textColor="@color/black"
+                        android:textStyle="bold"
                         android:text="@string/terms_of_agreement" />
 
                     <TextView
@@ -239,6 +274,7 @@
                         android:clickable="true"
                         android:focusable="true"
                         android:text="@string/view_terms_of_agreement"
+                        android:textColor="@color/brand_secondary"
                         android:textStyle="bold" />
                 </LinearLayout>
 

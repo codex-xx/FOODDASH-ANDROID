@@ -2,10 +2,10 @@ package com.example.fooddash;
 
 public class Constants {
     // Hostinger Backend URL
-    public static final String BASE_URL = "https://deeppink-goshawk-962937.hostingersite.com/api/";
+    public static final String BASE_URL = "https://fooddash.fooddash.online/api/";
     
     // Base URL for images and other resources
-    public static final String RESOURCE_URL = "https://deeppink-goshawk-962937.hostingersite.com/";
+    public static final String RESOURCE_URL = "https://fooddash.fooddash.online/";
 
     public static final String URL_SEND_NOTIFICATION_EMAIL = BASE_URL + "send-notification-email";
     
@@ -57,10 +57,10 @@ public class Constants {
     public static final String DELIVERY_MOTORCYCLE = "motorcycle";
     public static final String DELIVERY_TRICYCLE = "tricycle";
     public static final String DELIVERY_CAB = "cab";
-    // Default base delivery fees (can be adjusted as needed)
-    public static final double FEE_MOTORCYCLE = 30.00; // fast, cheap
-    public static final double FEE_TRICYCLE = 50.00;   // medium capacity
-    public static final double FEE_CAB = 80.00;        // bulk orders
+    
+    public static final double FEE_MOTORCYCLE = 30.00;
+    public static final double FEE_TRICYCLE = 50.00;
+    public static final double FEE_CAB = 80.00;
 
     // Helper to resolve fee by delivery type key
     public static double getFeeForType(String deliveryType) {

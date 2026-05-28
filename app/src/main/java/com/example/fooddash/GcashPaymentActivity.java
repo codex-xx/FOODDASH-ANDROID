@@ -25,6 +25,7 @@ public class GcashPaymentActivity extends AppCompatActivity {
     public static final String EXTRA_AMOUNT = "amount";
     
     private int orderId;
+    private double amount;
     private ApiService apiService;
     private Handler pollingHandler;
     private Runnable pollingRunnable;
@@ -34,7 +35,7 @@ public class GcashPaymentActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_gcash_payment);
 
-        double amount = getIntent().getDoubleExtra(EXTRA_AMOUNT, 0.0);
+        amount = getIntent().getDoubleExtra(EXTRA_AMOUNT, 0.0);
         orderId = getIntent().getIntExtra("order_id", -1);
         
         apiService = RetrofitClient.getApiService();
@@ -46,18 +47,21 @@ public class GcashPaymentActivity extends AppCompatActivity {
         Button payButton = findViewById(R.id.btnOpenGcash);
         payButton.setOnClickListener(v -> {
             try {
-                String gcashUrl = "gcash://pay?amount=" + amount;
+                // GCash deep link with amount and mobile number
+                String gcashUrl = "gcash://pay?amount=" + amount + "&number=09068736392";
                 Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(gcashUrl));
                 intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 
                 if (intent.resolveActivity(getPackageManager()) != null) {
                     startActivity(intent);
                 } else {
+                    // Try launching by package name if deep link action fails
                     Intent launchIntent = getPackageManager().getLaunchIntentForPackage("com.globe.gcash.android");
                     if (launchIntent != null) {
                         startActivity(launchIntent);
+                        Toast.makeText(this, "Opening GCash... Please pay ₱" + String.format(Locale.US, "%.2f", amount) + " to 09068736392", Toast.LENGTH_LONG).show();
                     } else {
-                        Toast.makeText(this, "GCash app not found.", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(this, "GCash app not found. Please install it or scan the QR.", Toast.LENGTH_SHORT).show();
                     }
                 }
             } catch (Exception e) {
