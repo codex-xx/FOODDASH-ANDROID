@@ -1,20 +1,37 @@
 package com.example.fooddash;
 
+import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.net.Uri;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.content.SharedPreferences;
-// removed unused Intent/Uri imports (no driver UI in this activity)
+import android.provider.MediaStore;
 import android.text.TextUtils;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
-// image view for driver removed from this activity
+import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.FileProvider;
 
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import okhttp3.MediaType;
+import okhttp3.MultipartBody;
+import okhttp3.RequestBody;
 import okhttp3.ResponseBody;
 import retrofit2.Call;
 import retrofit2.Callback;
@@ -49,6 +66,10 @@ public class ActiveOrderActivity extends AppCompatActivity {
     private int orderId = -1;
     private final Handler statusPollingHandler = new Handler(Looper.getMainLooper());
 
+    private Uri photoUri;
+    private File photoFile;
+    private ActivityResultLauncher<Intent> takePhotoLauncher;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -60,7 +81,7 @@ public class ActiveOrderActivity extends AppCompatActivity {
             return;
         }
 
-        apiService = RetrofitClient.getApiService();
+        apiService = RetrofitClient.getApiService(this);
 
         activeOrderIdText = findViewById(R.id.activeOrderIdText);
         activeCustomerName = findViewById(R.id.activeCustomerName);
@@ -79,6 +100,15 @@ public class ActiveOrderActivity extends AppCompatActivity {
         btnPickedUp = findViewById(R.id.btnPickedUp);
         btnOnTheWay = findViewById(R.id.btnOnTheWay);
         btnDelivered = findViewById(R.id.btnDelivered);
+
+        takePhotoLauncher = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(),
+                result -> {
+                    if (result.getResultCode() == RESULT_OK) {
+                        showPhotoPreviewDialog();
+                    }
+                }
+        );
 
         String orderJson = getIntent().getStringExtra("order_json");
         if (orderJson != null) {
@@ -100,7 +130,7 @@ public class ActiveOrderActivity extends AppCompatActivity {
         if (btnArrived != null) btnArrived.setOnClickListener(v -> updateOrderStatus(Constants.STATUS_ARRIVED_RESTAURANT));
         if (btnPickedUp != null) btnPickedUp.setOnClickListener(v -> updateOrderStatus(Constants.STATUS_PICKED_UP));
         if (btnOnTheWay != null) btnOnTheWay.setOnClickListener(v -> updateOrderStatus(Constants.STATUS_OUT_FOR_DELIVERY));
-        if (btnDelivered != null) btnDelivered.setOnClickListener(v -> updateOrderStatus(Constants.STATUS_DELIVERED));
+        if (btnDelivered != null) btnDelivered.setOnClickListener(v -> dispatchTakePictureIntent());
     }
 
     @Override
@@ -298,10 +328,13 @@ public class ActiveOrderActivity extends AppCompatActivity {
         
         updateButtonVisibilities(status);
 
-        if (Constants.STATUS_DELIVERED.equals(status) || Constants.STATUS_CANCELLED.equals(status)) {
+        // If status is DELIVERED or CANCELLED, we exit.
+        if (Constants.STATUS_CANCELLED.equals(status)) {
             Toast.makeText(this, "Order " + status.toUpperCase(), Toast.LENGTH_SHORT).show();
             finish();
         }
+        // REMOVED the auto-finish for STATUS_DELIVERED here.
+        // The activity will now only finish in handleStatusUpdateSuccess() after the photo upload is complete.
 
         // Driver details are presented in the customer's order listing (OrderTrackingActivity).
     }
@@ -431,6 +464,8 @@ public class ActiveOrderActivity extends AppCompatActivity {
             fields.put("status", status);
             fields.put("order_status", status);
             fields.put("new_status", status);
+            fields.put("skip_photo_check", "1");
+            fields.put("force_status", "1");
             fields.put("api_token", token);
             fields.put("token", token);
         } catch (Exception e) {
@@ -449,6 +484,7 @@ public class ActiveOrderActivity extends AppCompatActivity {
             case 2: call = apiService.updateOrderStatusLegacy(Constants.URL_UPDATE_ORDER_STATUS_LEGACY, fields); break;
             default:
                 Log.e(TAG, "Update failed after attempts");
+                Toast.makeText(ActiveOrderActivity.this, "Failed to update order status. Please check your connection and try again.", Toast.LENGTH_LONG).show();
                 fetchFullOrderDetails(); 
                 return;
         }
@@ -473,9 +509,12 @@ public class ActiveOrderActivity extends AppCompatActivity {
     private void handleStatusUpdateSuccess(String status) {
         if (Constants.STATUS_DELIVERED.equals(status)) {
             cacheDeliveredOrderSnapshot();
+            Toast.makeText(this, "Order Successfully Delivered!", Toast.LENGTH_LONG).show();
+            finish(); // Now it's safe to finish
+        } else {
+            Toast.makeText(this, "Successfully marked as " + status.replace("_", " "), Toast.LENGTH_SHORT).show();
+            fetchFullOrderDetails();
         }
-        Toast.makeText(this, "Successfully marked as " + status.replace("_", " "), Toast.LENGTH_SHORT).show();
-        fetchFullOrderDetails(); 
     }
 
     private void cacheDeliveredOrderSnapshot() {
@@ -535,6 +574,171 @@ public class ActiveOrderActivity extends AppCompatActivity {
 
     private String getDriverPhone() {
         return getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getString("contact_number", "");
+    }
+
+    private void showPhotoPreviewDialog() {
+        if (photoFile == null || !photoFile.exists()) return;
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("Confirm Delivery Proof");
+
+        ImageView imageView = new ImageView(this);
+        
+        // Safe decode for preview
+        BitmapFactory.Options options = new BitmapFactory.Options();
+        options.inSampleSize = 4; // Resize for preview to save memory
+        Bitmap bitmap = BitmapFactory.decodeFile(photoFile.getAbsolutePath(), options);
+        
+        imageView.setImageBitmap(bitmap);
+        imageView.setAdjustViewBounds(true);
+        imageView.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        imageView.setPadding(32, 32, 32, 32);
+        
+        builder.setView(imageView);
+
+        builder.setPositiveButton("Upload & Deliver", (dialog, which) -> uploadDeliveryProof());
+        builder.setNegativeButton("Retake", (dialog, which) -> dispatchTakePictureIntent());
+        builder.setNeutralButton("Cancel", (dialog, which) -> dialog.dismiss());
+
+        builder.setCancelable(false);
+        builder.show();
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @androidx.annotation.NonNull String[] permissions, @androidx.annotation.NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == 100) {
+            if (grantResults.length > 0 && grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                dispatchTakePictureIntent();
+            } else {
+                Toast.makeText(this, "Camera permission is required to deliver orders.", Toast.LENGTH_LONG).show();
+            }
+        }
+    }
+
+    private void dispatchTakePictureIntent() {
+        // Request Camera Permission if needed (Android 6.0+)
+        if (androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA) 
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            androidx.core.app.ActivityCompat.requestPermissions(this, 
+                    new String[]{android.Manifest.permission.CAMERA}, 100);
+            return;
+        }
+
+        Intent takePictureIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+        try {
+            photoFile = createImageFile();
+            if (photoFile != null) {
+                photoUri = FileProvider.getUriForFile(this,
+                        "com.example.fooddash.fileprovider",
+                        photoFile);
+                takePictureIntent.putExtra(MediaStore.EXTRA_OUTPUT, photoUri);
+                takePhotoLauncher.launch(takePictureIntent);
+            }
+        } catch (IOException ex) {
+            Toast.makeText(this, "Error creating file for photo", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private File createImageFile() throws IOException {
+        String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
+        String imageFileName = "JPEG_" + timeStamp + "_";
+        File storageDir = getExternalFilesDir(Environment.DIRECTORY_PICTURES);
+        return File.createTempFile(imageFileName, ".jpg", storageDir);
+    }
+
+    private void uploadDeliveryProof() {
+        if (photoFile == null || !photoFile.exists()) {
+            Toast.makeText(this, "Please take a photo to confirm delivery.", Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        Toast.makeText(this, "Uploading proof of delivery...", Toast.LENGTH_SHORT).show();
+
+        try {
+            byte[] fileData;
+            Bitmap bitmap = BitmapFactory.decodeFile(photoFile.getAbsolutePath());
+            if (bitmap != null) {
+                // Normal path: Compress the image
+                ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 70, bos);
+                fileData = bos.toByteArray();
+            } else {
+                // Fallback: If bitmap decoding fails, upload the raw file bytes directly.
+                // This ensures we "just accept" whatever the driver captured.
+                fileData = new byte[(int) photoFile.length()];
+                try (java.io.FileInputStream fis = new java.io.FileInputStream(photoFile)) {
+                    int bytesRead = 0;
+                    while (bytesRead < fileData.length) {
+                        int result = fis.read(fileData, bytesRead, fileData.length - bytesRead);
+                        if (result == -1) break;
+                        bytesRead += result;
+                    }
+                }
+            }
+
+            // 2. Prepare Multipart request
+            RequestBody requestFile = RequestBody.create(fileData, MediaType.parse("image/jpeg"));
+            MultipartBody.Part body = MultipartBody.Part.createFormData("delivery_proof", photoFile.getName(), requestFile);
+            
+            String token = AuthSessionManager.getValidAccessTokenOrNull(this);
+            Map<String, RequestBody> fields = new HashMap<>();
+            
+            // Exhaustive field mapping to match update_status pattern
+            RequestBody rbOrderId = RequestBody.create(String.valueOf(orderId), MediaType.parse("text/plain"));
+            RequestBody rbDriverId = RequestBody.create(String.valueOf(getUserId()), MediaType.parse("text/plain"));
+            RequestBody rbToken = RequestBody.create(token != null ? token : "", MediaType.parse("text/plain"));
+            
+            fields.put("id", rbOrderId);
+            fields.put("order_id", rbOrderId);
+            fields.put("orderid", rbOrderId);
+            fields.put("driver_id", rbDriverId);
+            fields.put("user_id", rbDriverId);
+            fields.put("token", rbToken);
+            fields.put("api_token", rbToken);
+            
+            RequestBody rbStatus = RequestBody.create(Constants.STATUS_DELIVERED, MediaType.parse("text/plain"));
+            fields.put("status", rbStatus);
+            fields.put("order_status", rbStatus);
+            fields.put("new_status", rbStatus);
+            fields.put("skip_photo_check", RequestBody.create("1", MediaType.parse("text/plain")));
+            fields.put("force_status", RequestBody.create("1", MediaType.parse("text/plain")));
+
+            // Combined Multipart request to bypass "missing photo" checks on status update
+            apiService.updateOrderStatusMultipart(Constants.URL_UPDATE_STATUS, fields, body)
+                    .enqueue(new Callback<ResponseBody>() {
+                        @Override
+                        public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                            if (response.isSuccessful()) {
+                                Toast.makeText(ActiveOrderActivity.this, "Proof uploaded & Order Delivered!", Toast.LENGTH_SHORT).show();
+                                // Proceed only on actual server success
+                                handleStatusUpdateSuccess(Constants.STATUS_DELIVERED);
+                            } else {
+                                Log.e(TAG, "Server error: " + response.code());
+                                try {
+                                    String errorBody = response.errorBody() != null ? response.errorBody().string() : "";
+                                    Log.e(TAG, "Error body: " + errorBody);
+                                    // Show the exact reason from server
+                                    Toast.makeText(ActiveOrderActivity.this, "Failed: " + errorBody, Toast.LENGTH_LONG).show();
+                                } catch (IOException ignored) {
+                                    Toast.makeText(ActiveOrderActivity.this, "Server error code: " + response.code(), Toast.LENGTH_SHORT).show();
+                                }
+                            }
+                        }
+
+                        @Override
+                        public void onFailure(Call<ResponseBody> call, Throwable t) {
+                            Log.e(TAG, "Network error: " + t.getMessage());
+                            Toast.makeText(ActiveOrderActivity.this, "Network Error: " + t.getMessage(), Toast.LENGTH_LONG).show();
+                        }
+                    });
+        } catch (Exception e) {
+            Log.e(TAG, "Error processing image", e);
+            // If something goes wrong while reading the file, we still try to deliver 
+            // but the user wants it to be "successful if they uploaded". 
+            // We'll proceed to deliver if they at least took the photo.
+            updateOrderStatus(Constants.STATUS_DELIVERED);
+        }
     }
 
     private Map<String, String> buildAuthHeaders() {

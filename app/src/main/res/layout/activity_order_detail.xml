@@ -131,6 +131,41 @@
                 android:layout_marginTop="4dp"
                 android:text="Vehicle:" />
 
+            <View
+                android:id="@+id/proofSeparator"
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:layout_marginTop="12dp"
+                android:background="#CCCCCC"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/tvProofLabel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:textStyle="bold"
+                android:text="Delivery Proof"
+                android:visibility="gone" />
+
+            <ImageView
+                android:id="@+id/ivDeliveryProof"
+                android:layout_width="match_parent"
+                android:layout_height="250dp"
+                android:layout_marginTop="8dp"
+                android:scaleType="centerCrop"
+                android:visibility="gone"
+                android:background="#EEEEEE" />
+
+            <TextView
+                android:id="@+id/tvDeliveredAt"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:layout_marginBottom="12dp"
+                android:text="Delivered at:"
+                android:visibility="gone" />
+
         </LinearLayout>
 
     </ScrollView>

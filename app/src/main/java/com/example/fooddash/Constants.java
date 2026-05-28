@@ -3,9 +3,13 @@ package com.example.fooddash;
 public class Constants {
     // Hostinger Backend URL
     public static final String BASE_URL = "https://fooddash.fooddash.online/api/";
-    
-    // Base URL for images and other resources
     public static final String RESOURCE_URL = "https://fooddash.fooddash.online/";
+
+    // Local Development URLs
+    // IMPORTANT: Make sure this is the correct IP address for your XAMPP server.
+    // public static final String IP_ADDRESS = "192.168.1.11"; 
+    // public static final String BASE_URL = "http://" + IP_ADDRESS + "/FoodDash/api/";
+    // public static final String RESOURCE_URL = "http://" + IP_ADDRESS + "/FoodDash/";
 
     public static final String URL_SEND_NOTIFICATION_EMAIL = BASE_URL + "send-notification-email";
     
@@ -30,6 +34,7 @@ public class Constants {
     public static final String URL_ORDERS = BASE_URL + "orders";
     public static final String URL_DRIVER_ACCEPT_ORDER = BASE_URL + "driver/accept_order";
     public static final String URL_UPDATE_STATUS = BASE_URL + "update_status";
+    public static final String URL_UPLOAD_DELIVERY_PROOF = BASE_URL + "upload-delivery-proof";
 
     // Backward-compatible fallback endpoints
     public static final String URL_GET_ALL_RESTAURANTS = BASE_URL + "get_all_restaurants.php";

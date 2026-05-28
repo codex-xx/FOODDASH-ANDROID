@@ -1,12 +1,16 @@
 package com.example.fooddash;
 
+import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
 import android.text.TextUtils;
 import android.view.View;
 import android.widget.Button;
-import android.widget.TextView;
+import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
+
+import com.bumptech.glide.Glide;
 
 import androidx.appcompat.app.AppCompatActivity;
 
@@ -18,7 +22,9 @@ public class OrderDetailActivity extends AppCompatActivity {
     private TextView tvOrderId, tvDate, tvStatus, tvCustomerName, tvCustomerContact, tvCustomerAddress;
     private TextView tvRestaurant, tvItems, tvTotal, tvPayment;
     private TextView tvDriverName, tvDriverContact, tvDriverVehicle;
-    private View driverSeparator, driverLabel;
+    private View driverSeparator, driverLabel, proofSeparator;
+    private TextView tvProofLabel, tvDeliveredAt;
+    private ImageView ivDeliveryProof;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -41,6 +47,11 @@ public class OrderDetailActivity extends AppCompatActivity {
         tvDriverVehicle = findViewById(R.id.tvDriverVehicle);
         driverLabel = findViewById(R.id.driverLabel);
         driverSeparator = findViewById(R.id.tvDriverName).getParent() instanceof View ? (View) findViewById(R.id.tvDriverName).getParent() : null;
+
+        proofSeparator = findViewById(R.id.proofSeparator);
+        tvProofLabel = findViewById(R.id.tvProofLabel);
+        ivDeliveryProof = findViewById(R.id.ivDeliveryProof);
+        tvDeliveredAt = findViewById(R.id.tvDeliveredAt);
 
         Button btnClose = findViewById(R.id.btnCloseDetail);
         btnClose.setOnClickListener(v -> finish());
@@ -228,6 +239,46 @@ public class OrderDetailActivity extends AppCompatActivity {
         tvDriverName.setText("Name: " + (driverName.isEmpty() ? "Not Assigned" : driverName));
         tvDriverContact.setText("Phone: " + (driverContact.isEmpty() ? "N/A" : driverContact));
         tvDriverVehicle.setText("Vehicle: " + (driverVehicle.isEmpty() ? "Not Assigned" : driverVehicle));
+
+        // Delivery Proof Logic
+        String proofPhoto = order.optString("delivery_proof_photo", "");
+        if (!proofPhoto.isEmpty() && !proofPhoto.equalsIgnoreCase("null")) {
+            proofSeparator.setVisibility(View.VISIBLE);
+            tvProofLabel.setVisibility(View.VISIBLE);
+            ivDeliveryProof.setVisibility(View.VISIBLE);
+            tvDeliveredAt.setVisibility(View.VISIBLE);
+
+            String fullPhotoUrl = proofPhoto;
+            if (!proofPhoto.startsWith("http")) {
+                fullPhotoUrl = Constants.RESOURCE_URL + proofPhoto;
+            }
+
+            Glide.with(this)
+                    .load(fullPhotoUrl)
+                    .placeholder(android.R.drawable.ic_menu_gallery)
+                    .error(android.R.drawable.ic_menu_report_image)
+                    .into(ivDeliveryProof);
+
+            String deliveredAt = order.optString("delivered_at", "");
+            if (!deliveredAt.isEmpty()) {
+                tvDeliveredAt.setText("Delivered at: " + deliveredAt);
+            } else {
+                tvDeliveredAt.setVisibility(View.GONE);
+            }
+
+            // Click to view full size
+            String finalFullPhotoUrl = fullPhotoUrl;
+            ivDeliveryProof.setOnClickListener(v -> {
+                Toast.makeText(OrderDetailActivity.this, "Opening full image...", Toast.LENGTH_SHORT).show();
+                Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(finalFullPhotoUrl));
+                startActivity(intent);
+            });
+        } else {
+            proofSeparator.setVisibility(View.GONE);
+            tvProofLabel.setVisibility(View.GONE);
+            ivDeliveryProof.setVisibility(View.GONE);
+            tvDeliveredAt.setVisibility(View.GONE);
+        }
     }
 
     private String firstNonEmpty(String... vals) {

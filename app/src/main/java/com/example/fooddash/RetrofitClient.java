@@ -72,24 +72,27 @@ public class RetrofitClient {
             builder.sslSocketFactory(sslSocketFactory, (X509TrustManager)trustAllCerts[0]);
             builder.hostnameVerifier((hostname, session) -> true);
 
-            // Add Logging Interceptor
-            HttpLoggingInterceptor loggingInterceptor = new HttpLoggingInterceptor();
-            loggingInterceptor.setLevel(HttpLoggingInterceptor.Level.BODY);
-            builder.addInterceptor(loggingInterceptor);
-
             // Add Auth Interceptor
             builder.addInterceptor(chain -> {
+                Request original = chain.request();
                 if (staticAppContext != null) {
                     String token = AuthSessionManager.getValidAccessTokenOrNull(staticAppContext);
                     if (!TextUtils.isEmpty(token)) {
-                        Request newRequest = chain.request().newBuilder()
-                                .addHeader("Authorization", "Bearer " + token)
+                        Request newRequest = original.newBuilder()
+                                .header("Authorization", "Bearer " + token)
+                                .header("Accept", "application/json")
+                                .header("User-Agent", "FoodDash-Android-App")
                                 .build();
                         return chain.proceed(newRequest);
                     }
                 }
-                return chain.proceed(chain.request());
+                return chain.proceed(original);
             });
+
+            // Add Logging Interceptor after Auth Interceptor to log final headers
+            HttpLoggingInterceptor loggingInterceptor = new HttpLoggingInterceptor();
+            loggingInterceptor.setLevel(HttpLoggingInterceptor.Level.BODY);
+            builder.addInterceptor(loggingInterceptor);
 
             return builder.build();
         } catch (Exception e) {

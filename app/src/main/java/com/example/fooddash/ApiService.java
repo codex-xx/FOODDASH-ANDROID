@@ -73,6 +73,14 @@ public interface ApiService {
     @POST
     Call<ResponseBody> updateOrderStatus(@Url String url, @FieldMap Map<String, String> fields);
 
+    @retrofit2.http.Multipart
+    @POST
+    Call<ResponseBody> updateOrderStatusMultipart(
+        @Url String url,
+        @retrofit2.http.PartMap Map<String, okhttp3.RequestBody> fields,
+        @retrofit2.http.Part okhttp3.MultipartBody.Part image
+    );
+
     @FormUrlEncoded
     @POST("orders/{orderId}/status")
     Call<ResponseBody> updateOrderStatusWithId(@Path("orderId") int orderId, @FieldMap Map<String, String> fields);
@@ -125,6 +133,15 @@ public interface ApiService {
     @FormUrlEncoded
     @POST("send-notification-email")
     Call<ResponseBody> sendNotificationEmail(@FieldMap Map<String, String> fields);
+
+    @retrofit2.http.Multipart
+    @POST
+    Call<ResponseBody> uploadDeliveryProof(
+        @Url String url,
+        @retrofit2.http.Part okhttp3.MultipartBody.Part image,
+        @retrofit2.http.PartMap Map<String, okhttp3.RequestBody> fields,
+        @Query("api_token") String apiToken
+    );
 
     @GET("orders")
     Call<ResponseBody> getOrdersByDriver(@Query("driver_id") int driverId);
