@@ -65,6 +65,24 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
                 android:text="Address: --" />
+
+            <TextView
+                android:id="@+id/customerLocationMapLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="Delivery Location"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textColor="@color/secondary_dark_gray" />
+
+            <org.osmdroid.views.MapView
+                android:id="@+id/customerLocationMapView"
+                android:layout_width="match_parent"
+                android:layout_height="220dp"
+                android:layout_marginTop="8dp"
+                android:visibility="gone"
+                android:background="@drawable/bg_input_field" />
         </LinearLayout>
 
         <!-- driver UI removed from ActiveOrderActivity; driver details are shown in customer-order listing (OrderTrackingActivity) -->

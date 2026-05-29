@@ -122,6 +122,7 @@ public class CustomerLocationPickerActivity extends AppCompatActivity {
         }
         selectedPoint = new GeoPoint(latitude, longitude);
         updateSelectedPoint(selectedPoint);
+        updateLocationSummary();
     }
 
     private void requestCurrentLocation() {
@@ -138,12 +139,13 @@ public class CustomerLocationPickerActivity extends AppCompatActivity {
             @Override
             public void onLocationReady(LocationHelper.LocationData locationData) {
                 btnCurrentLocation.setEnabled(true);
-                if (locationData == null) {
+                        if (locationData == null) {
                     Toast.makeText(CustomerLocationPickerActivity.this, "Unable to read current location", Toast.LENGTH_SHORT).show();
                     return;
                 }
                 selectedAddress = locationData.address;
                 updateSelectedPoint(new GeoPoint(locationData.latitude, locationData.longitude));
+                updateLocationSummary();
             }
 
             @Override

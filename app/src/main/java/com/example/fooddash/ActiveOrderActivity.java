@@ -48,6 +48,15 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.TimeZone;
 
+import org.osmdroid.api.IMapController;
+import org.osmdroid.config.Configuration;
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory;
+import org.osmdroid.util.GeoPoint;
+import org.osmdroid.views.MapView;
+import org.osmdroid.views.overlay.Marker;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 public class ActiveOrderActivity extends AppCompatActivity {
 
     private static final String TAG = "ActiveOrderActivity";
@@ -58,6 +67,8 @@ public class ActiveOrderActivity extends AppCompatActivity {
 
     private TextView activeOrderIdText, activeCustomerName, activeCustomerContact, activeDeliveryAddress;
     private TextView activeRestaurantName, activeOrderItems, activeOrderStatus, activePaymentMethod, activeOrderTotal;
+    private MapView customerLocationMapView;
+    private Marker customerLocationMarker;
     // driver UI moved to customer order listing (OrderTrackingActivity)
     private Button btnPreparing, btnReady, btnArrived, btnPickedUp, btnOnTheWay, btnDelivered;
 
@@ -73,16 +84,10 @@ public class ActiveOrderActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        Configuration.getInstance().setUserAgentValue(getPackageName());
         setContentView(R.layout.activity_active_order);
 
-        if (!AccessControlManager.requireAccess(this,
-                AccessControlManager.Resource.ACTIVE_ORDER,
-                AccessControlManager.Action.READ)) {
-            return;
-        }
-
-        apiService = RetrofitClient.getApiService(this);
-
+        customerLocationMapView = findViewById(R.id.customerLocationMapView);
         activeOrderIdText = findViewById(R.id.activeOrderIdText);
         activeCustomerName = findViewById(R.id.activeCustomerName);
         activeCustomerContact = findViewById(R.id.activeCustomerContact);
@@ -92,14 +97,22 @@ public class ActiveOrderActivity extends AppCompatActivity {
         activeOrderStatus = findViewById(R.id.activeOrderStatus);
         activePaymentMethod = findViewById(R.id.activePaymentMethod);
         activeOrderTotal = findViewById(R.id.activeOrderTotal);
-        // driver UI bindings removed
-
         btnPreparing = findViewById(R.id.btnPreparing);
         btnReady = findViewById(R.id.btnReady);
         btnArrived = findViewById(R.id.btnArrived);
         btnPickedUp = findViewById(R.id.btnPickedUp);
         btnOnTheWay = findViewById(R.id.btnOnTheWay);
         btnDelivered = findViewById(R.id.btnDelivered);
+
+        initCustomerLocationMap();
+
+        if (!AccessControlManager.requireAccess(this,
+                AccessControlManager.Resource.ACTIVE_ORDER,
+                AccessControlManager.Action.READ)) {
+            return;
+        }
+
+        apiService = RetrofitClient.getApiService(this);
 
         takePhotoLauncher = registerForActivityResult(
                 new ActivityResultContracts.StartActivityForResult(),
@@ -255,6 +268,7 @@ public class ActiveOrderActivity extends AppCompatActivity {
                 "N/A"
         );
         activeDeliveryAddress.setText("Address: " + address);
+        updateCustomerLocationMarker(getCustomerLocationPoint(activeOrder));
         
         activeRestaurantName.setText(activeOrder.optString("restaurant_name", "Restaurant"));
         
@@ -366,6 +380,163 @@ public class ActiveOrderActivity extends AppCompatActivity {
             } catch (JSONException ignored) {
             }
         }
+    }
+
+    private void initCustomerLocationMap() {
+        if (customerLocationMapView == null) {
+            return;
+        }
+        customerLocationMapView.setTileSource(TileSourceFactory.MAPNIK);
+        customerLocationMapView.setMultiTouchControls(true);
+        IMapController controller = customerLocationMapView.getController();
+        controller.setZoom(16.0);
+
+        customerLocationMarker = new Marker(customerLocationMapView);
+        customerLocationMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM);
+        customerLocationMarker.setTitle("Delivery location");
+        customerLocationMapView.getOverlays().add(customerLocationMarker);
+        customerLocationMapView.setVisibility(View.GONE);
+    }
+
+    private void updateCustomerLocationMarker(GeoPoint point) {
+        if (customerLocationMapView == null || customerLocationMarker == null) {
+            return;
+        }
+        if (point == null) {
+            customerLocationMapView.setVisibility(View.GONE);
+            return;
+        }
+
+        customerLocationMarker.setPosition(point);
+        customerLocationMarker.setVisible(true);
+        customerLocationMapView.setVisibility(View.VISIBLE);
+        IMapController controller = customerLocationMapView.getController();
+        controller.setCenter(point);
+        controller.setZoom(16.0);
+        customerLocationMapView.invalidate();
+    }
+
+    private GeoPoint getCustomerLocationPoint(JSONObject order) {
+        if (order == null) {
+            return null;
+        }
+
+        // 1) Try common top-level keys
+        Double latitude = findCoordinate(order,
+                "customer_latitude",
+                "delivery_latitude",
+                "latitude",
+                "lat",
+                "dropoff_lat",
+                "destination_lat"
+        );
+        Double longitude = findCoordinate(order,
+                "customer_longitude",
+                "delivery_longitude",
+                "longitude",
+                "lng",
+                "dropoff_lng",
+                "destination_lng"
+        );
+
+        // 2) If not found, check common nested objects
+        if (latitude == null || longitude == null) {
+            String[] nested = new String[]{"customer", "customer_info", "delivery", "shipping", "address", "delivery_info"};
+            for (String key : nested) {
+                if (order.has(key) && !order.isNull(key)) {
+                    Object o = order.opt(key);
+                    if (o instanceof JSONObject) {
+                        JSONObject n = (JSONObject) o;
+                        if (latitude == null) latitude = findCoordinate(n, "latitude", "lat", "customer_latitude", "delivery_latitude");
+                        if (longitude == null) longitude = findCoordinate(n, "longitude", "lng", "customer_longitude", "delivery_longitude");
+                    }
+                }
+            }
+        }
+
+        // 3) If still not found, try parsing lat/lng from textual fields
+        if (latitude == null || longitude == null) {
+            String[] stringFields = new String[]{"selected_location", "delivery_address", "address", "selected_location_summary", "location"};
+            for (String key : stringFields) {
+                String text = order.optString(key, "");
+                if (text != null && !text.trim().isEmpty()) {
+                    Double[] parsed = parseLatLngFromString(text);
+                    if (parsed != null) {
+                        latitude = parsed[0];
+                        longitude = parsed[1];
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (latitude == null || longitude == null) {
+            Log.d(TAG, "Customer coordinates not found in order payload");
+            return null;
+        }
+
+        if (Math.abs(latitude) < 1e-6 && Math.abs(longitude) < 1e-6) {
+            Log.d(TAG, "Customer coordinates are near-zero, skipping map pin");
+            return null;
+        }
+
+        Log.d(TAG, "Found customer coords: lat=" + latitude + ", lng=" + longitude);
+        return new GeoPoint(latitude, longitude);
+    }
+
+    private Double[] parseLatLngFromString(String text) {
+        if (text == null) return null;
+        // Common patterns: "Lat: 6.124571, Lng: 125.126797" or "6.124571,125.126797" or "lat:6.12 lng:125.12"
+        Pattern p = Pattern.compile("(?:Lat[:=]?\\s*)?([-+]?[0-9]*\\.?[0-9]+)[,\\s]+(?:Lng[:=]?\\s*)?([-+]?[0-9]*\\.?[0-9]+)", Pattern.CASE_INSENSITIVE);
+        Matcher m = p.matcher(text);
+        if (m.find()) {
+            try {
+                Double lat = Double.parseDouble(m.group(1));
+                Double lng = Double.parseDouble(m.group(2));
+                return new Double[]{lat, lng};
+            } catch (NumberFormatException ignored) {
+            }
+        }
+
+        // Try to find any two decimal numbers in the string
+        Pattern p2 = Pattern.compile("([-+]?[0-9]*\\.?[0-9]+)");
+        Matcher m2 = p2.matcher(text);
+        Double a = null, b = null;
+        while (m2.find()) {
+            try {
+                double v = Double.parseDouble(m2.group(1));
+                if (a == null) a = v;
+                else if (b == null) { b = v; break; }
+            } catch (NumberFormatException ignored) {}
+        }
+        if (a != null && b != null) {
+            return new Double[]{a, b};
+        }
+        return null;
+    }
+
+    private Double findCoordinate(JSONObject order, String... keys) {
+        for (String key : keys) {
+            if (!order.has(key) || order.isNull(key)) {
+                continue;
+            }
+
+            Object value = order.opt(key);
+            if (value instanceof Number) {
+                return ((Number) value).doubleValue();
+            }
+            if (value instanceof String) {
+                String text = ((String) value).trim();
+                if (text.isEmpty() || text.equalsIgnoreCase("null") || text.equalsIgnoreCase("undefined")) {
+                    continue;
+                }
+                try {
+                    return Double.parseDouble(text);
+                } catch (NumberFormatException ignored) {
+                }
+            }
+        }
+        return null;
     }
 
     public static String normalizeStatus(String status) {

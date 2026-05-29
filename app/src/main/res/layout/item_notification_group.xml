@@ -57,13 +57,14 @@
             android:layout_marginTop="4dp"
             android:textColor="@color/text_gray"
             android:textSize="13sp"
-            android:text="Restaurant • Today 4:30 PM" />
+            android:text="Restaurant" />
 
         <TextView
             android:id="@+id/notificationGroupTimestamp"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
+            android:visibility="gone"
             android:background="@drawable/bg_surface_card"
             android:paddingStart="10dp"
             android:paddingTop="5dp"
@@ -72,7 +73,7 @@
             android:textColor="@color/primary_blue"
             android:textSize="12sp"
             android:textStyle="bold"
-            android:text="2 mins ago" />
+            android:text="" />
 
         <TextView
             android:id="@+id/notificationStageSummary"

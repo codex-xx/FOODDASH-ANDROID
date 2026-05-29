@@ -11,6 +11,7 @@ import org.json.JSONObject;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Locale;
+import java.util.TimeZone;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -473,13 +474,28 @@ public final class NotificationStore {
 
     private static long parseTimestampString(String s) {
         if (TextUtils.isEmpty(s)) return 0L;
-        String[] patterns = new String[]{"yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd'T'HH:mm:ss'Z'", "yyyy-MM-dd"};
+        String normalized = s.trim();
+        if (normalized.endsWith("Z")) {
+            normalized = normalized.substring(0, normalized.length() - 1) + "+0000";
+        } else {
+            normalized = normalized.replaceAll("([+-]\\d\\d):(\\d\\d)$", "$1$2");
+        }
+
+        String[] patterns = new String[]{
+            "yyyy-MM-dd'T'HH:mm:ss.SSSZ",
+            "yyyy-MM-dd'T'HH:mm:ssZ",
+            "yyyy-MM-dd HH:mm:ss",
+            "yyyy-MM-dd"
+        };
         for (String p : patterns) {
             try {
                 SimpleDateFormat fmt = new SimpleDateFormat(p, Locale.US);
                 fmt.setLenient(true);
-                return fmt.parse(s).getTime();
-            } catch (ParseException ignored) {
+                if (p.endsWith("Z")) {
+                    fmt.setTimeZone(TimeZone.getTimeZone("UTC"));
+                }
+                return fmt.parse(normalized).getTime();
+            } catch (Exception ignored) {
             }
         }
         // If it's numeric string

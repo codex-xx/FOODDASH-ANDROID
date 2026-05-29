@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class LocationHelper {
 
@@ -44,6 +45,9 @@ public final class LocationHelper {
     }
 
     private static final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor();
+    private static final long LOCATION_UPDATE_TIMEOUT_MS = 12000;
+    private static final long LAST_KNOWN_MAX_AGE_MS = 5 * 60 * 1000;
+    private static final float ACCEPTABLE_ACCURACY_METERS = 50f;
 
     private LocationHelper() {
     }
@@ -70,26 +74,39 @@ public final class LocationHelper {
         }
 
         Location bestLastKnown = getBestLastKnownLocation(locationManager);
-        if (bestLastKnown != null) {
+        if (bestLastKnown != null
+                && bestLastKnown.hasAccuracy()
+                && bestLastKnown.getAccuracy() <= ACCEPTABLE_ACCURACY_METERS
+                && System.currentTimeMillis() - bestLastKnown.getTime() <= LAST_KNOWN_MAX_AGE_MS) {
             reverseGeocodeAndReturn(context, bestLastKnown.getLatitude(), bestLastKnown.getLongitude(), callback);
             return;
         }
 
-        String provider = getBestProvider(locationManager);
-        if (TextUtils.isEmpty(provider)) {
-            callback.onError("Could not determine the device location.");
-            return;
-        }
+        requestCurrentLocation(context, locationManager, callback);
+    }
 
-        LocationListener listener = new LocationListener() {
+    private static void requestCurrentLocation(Context context, LocationManager locationManager, LocationCallback callback) {
+        final AtomicBoolean callbackCalled = new AtomicBoolean(false);
+        final Location[] bestLocation = new Location[1];
+        final Handler handler = new Handler(Looper.getMainLooper());
+        final Runnable[] timeoutTaskHolder = new Runnable[1];
+
+        final LocationListener listener = new LocationListener() {
             @Override
             public void onLocationChanged(Location location) {
-                locationManager.removeUpdates(this);
                 if (location == null) {
-                    callback.onError("Unable to read the current location.");
                     return;
                 }
-                reverseGeocodeAndReturn(context, location.getLatitude(), location.getLongitude(), callback);
+                if (isBetterLocation(location, bestLocation[0])) {
+                    bestLocation[0] = location;
+                }
+                if (location.hasAccuracy() && location.getAccuracy() <= ACCEPTABLE_ACCURACY_METERS) {
+                    if (callbackCalled.compareAndSet(false, true)) {
+                        removeUpdates(locationManager, this);
+                        handler.removeCallbacks(timeoutTaskHolder[0]);
+                        reverseGeocodeAndReturn(context, location.getLatitude(), location.getLongitude(), callback);
+                    }
+                }
             }
 
             @Override public void onProviderEnabled(String provider) { }
@@ -97,12 +114,48 @@ public final class LocationHelper {
             @Override public void onStatusChanged(String provider, int status, Bundle extras) { }
         };
 
+        final Runnable timeoutTask = () -> {
+            if (callbackCalled.compareAndSet(false, true)) {
+                removeUpdates(locationManager, listener);
+                if (bestLocation[0] != null) {
+                    reverseGeocodeAndReturn(context, bestLocation[0].getLatitude(), bestLocation[0].getLongitude(), callback);
+                } else {
+                    callback.onError("Unable to read the current location.");
+                }
+            }
+        };
+        timeoutTaskHolder[0] = timeoutTask;
+
         try {
-            locationManager.requestSingleUpdate(provider, listener, Looper.getMainLooper());
+            boolean requested = false;
+            if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000, 0f, listener, Looper.getMainLooper());
+                requested = true;
+            }
+            if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 1000, 0f, listener, Looper.getMainLooper());
+                requested = true;
+            }
+            if (!requested) {
+                callback.onError("Location providers are disabled.");
+                return;
+            }
+            handler.postDelayed(timeoutTask, LOCATION_UPDATE_TIMEOUT_MS);
         } catch (SecurityException securityException) {
-            callback.onError("Location permission is required to detect the current location.");
+            if (callbackCalled.compareAndSet(false, true)) {
+                callback.onError("Location permission is required to detect the current location.");
+            }
         } catch (IllegalArgumentException illegalArgumentException) {
-            callback.onError("Unable to access location provider.");
+            if (callbackCalled.compareAndSet(false, true)) {
+                callback.onError("Unable to access location provider.");
+            }
+        }
+    }
+
+    private static void removeUpdates(LocationManager locationManager, LocationListener listener) {
+        try {
+            locationManager.removeUpdates(listener);
+        } catch (SecurityException | IllegalArgumentException ignored) {
         }
     }
 
@@ -176,7 +229,7 @@ public final class LocationHelper {
         } catch (SecurityException ignored) {
         }
 
-        return LocationManager.PASSIVE_PROVIDER;
+        return null;
     }
 
     private static void reverseGeocodeAndReturn(Context context, double latitude, double longitude, LocationCallback callback) {
