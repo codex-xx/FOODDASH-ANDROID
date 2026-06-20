@@ -896,6 +896,11 @@ public class OrderTrackingActivity extends AppCompatActivity {
         footer.setTypeface(null, android.graphics.Typeface.BOLD);
         box.addView(footer);
 
+        Button cancelBtn = new Button(this);
+        cancelBtn.setText("Cancel Order");
+        cancelBtn.setId(View.generateViewId());
+        box.addView(cancelBtn);
+
         return box;
     }
 
